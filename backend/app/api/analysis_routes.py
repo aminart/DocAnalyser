@@ -83,6 +83,7 @@ async def cancel_analysis(analysis_id: str) -> dict:
 
 def _plain(md_text: str) -> str:
     """Allège le Markdown pour les exports Word/PDF (citations, italiques)."""
+    md_text = re.sub(r"```mermaid\n.*?```\n?", "", md_text, flags=re.S)  # schéma : utile en .md seulement
     out = []
     for line in md_text.splitlines():
         line = re.sub(r"^>\s?", "", line)

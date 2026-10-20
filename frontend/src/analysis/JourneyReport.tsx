@@ -1,5 +1,6 @@
 import React from 'react';
 import { Analysis, JourneyResult, Priority } from './types';
+import { FlowDiagram } from './FlowDiagram';
 import { Disclaimer, Emphasis, ReportBanner, docCountLabel, modelLabel } from './ui';
 
 const SEVERITY: Record<Priority['severity'], [string, string]> = {
@@ -158,61 +159,16 @@ export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult
           </div>
         </section>
 
-        {/* Flux principal */}
-        {result.flow.length > 0 && (
+        {/* Flux et points de sortie : graphe libre (linéaire, ramifié, avec boucles…) */}
+        {result.flow.nodes.length > 0 && (
           <section aria-labelledby="flow-h" className="flex flex-col gap-5 rounded-2xl border border-line bg-white px-[34px] py-7">
             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-2">
               <h2 id="flow-h" className="m-0 text-[22px] font-bold tracking-[-0.01em]">
-                Flux principal et points de sortie
+                Flux et points de sortie
               </h2>
               <span className="text-sm text-muted">Reconstitué à partir des récits des participants</span>
             </div>
-            <div className="overflow-x-auto">
-              <div className="flex flex-col gap-3.5" style={{ minWidth: result.flow.length * 170 }}>
-                <div className="flex items-center">
-                  {result.flow.map((fl, i) => {
-                    const goal = fl.kind === 'goal';
-                    return (
-                      <React.Fragment key={i}>
-                        {i > 0 && (
-                          <svg width="36" height="16" viewBox="0 0 36 16" aria-hidden="true" className="shrink-0">
-                            <path d="M2 8h28M25 3l6 5-6 5" fill="none" stroke="#9AA1B0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                        <div
-                          className="flex min-w-0 flex-1 flex-col gap-1 rounded-xl border-[1.5px] p-3.5"
-                          style={{
-                            borderColor: fl.breaking ? '#C2560F' : goal ? 'var(--ad-accent)' : 'var(--ad-line-strong)',
-                            background: fl.breaking ? '#FFF8F3' : goal ? 'var(--ad-accent-tint)' : '#FFFFFF',
-                          }}
-                        >
-                          <span className="text-xs font-semibold" style={{ color: fl.breaking ? '#9A430B' : 'var(--ad-muted)' }}>
-                            {fl.breaking ? 'Point de rupture' : fl.kind === 'entry' ? 'Entrée' : goal ? 'Objectif' : 'Étape'}
-                          </span>
-                          <span className="text-sm font-bold leading-[1.3]">{fl.label}</span>
-                        </div>
-                      </React.Fragment>
-                    );
-                  })}
-                </div>
-                <div className="flex">
-                  {result.flow.map((fl, i) => (
-                    <div key={i} className="flex min-w-0 flex-1 flex-col items-center gap-1.5" style={{ marginLeft: i > 0 ? 36 : 0 }}>
-                      {fl.exit && (
-                        <>
-                          <svg width="16" height="28" viewBox="0 0 16 28" aria-hidden="true">
-                            <path d="M8 2v20M3 17l5 6 5-6" fill="none" stroke="#C2560F" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" strokeDasharray="3 3" />
-                          </svg>
-                          <span className="rounded-lg border border-dashed border-[#C2560F] bg-white px-2.5 py-2 text-center text-[13px] leading-[1.4] text-[#7E3A0A]">
-                            {fl.exit}
-                          </span>
-                        </>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+            <FlowDiagram graph={result.flow} />
           </section>
         )}
 

@@ -383,6 +383,25 @@ LEVEL_GUIDANCE: dict[str, str] = {
     ),
 }
 
+FLOW_GRAPH_RULES: dict[str, str] = {
+    level: (
+        "« flow » est un graphe libre qui reflète fidèlement ce que décrivent les documents : "
+        "il peut être linéaire, comporter des embranchements, des chemins alternatifs, des retours en arrière "
+        "ou plusieurs points d'entrée. N'invente pas de branches absentes du corpus. "
+        "Types de nœuds : « entry » point d'entrée, « step » action ou écran, « decision » choix ou condition "
+        "(au moins 2 liens sortants, chacun avec un label), « exit » abandon ou sortie du parcours (aucun lien sortant), "
+        "« goal » objectif atteint. Mets « friction » à true sur les nœuds où des utilisateurs bloquent ou décrochent. "
+        "Types de liens : « main » chemin principal, « alt » chemin alternatif, « exit » vers un abandon, "
+        "« loop » retour en arrière ou répétition. "
+        f"Taille : {size}."
+    )
+    for level, size in {
+        "synth": "6 à 12 nœuds",
+        "detail": "8 à 20 nœuds",
+        "deep": "10 à 30 nœuds",
+    }.items()
+}
+
 FLOW_LEVEL_GUIDANCE: dict[str, str] = {
     "synth": "Niveau synthétique : 4 à 5 étapes, 1 friction et 1 opportunité par étape, 2 à 3 frictions prioritaires.",
     "detail": "Niveau détaillé : 4 à 6 étapes, 1 à 2 frictions et opportunités par étape, 3 à 4 frictions prioritaires.",
@@ -452,9 +471,24 @@ FLOW_SCHEMA = """{
       "opportunities": ["opportunités d'amélioration (phrase courte)"]
     }
   ],
-  "flow": [
-    {"label": "action ou écran du flux principal", "kind": "entry | step | goal", "breaking": false, "exit": "point de sortie / abandon à ce niveau (chaîne vide si aucun)"}
-  ],
+  "flow": {
+    "nodes": [
+      {
+        "id": "identifiant court unique (ex. n1)",
+        "label": "action, écran ou décision (2 à 8 mots)",
+        "type": "entry | step | decision | exit | goal",
+        "friction": false
+      }
+    ],
+    "edges": [
+      {
+        "from": "id du nœud de départ",
+        "to": "id du nœud d'arrivée",
+        "label": "condition ou action déclenchante (chaîne vide si évident)",
+        "kind": "main | alt | exit | loop"
+      }
+    ]
+  },
   "priorities": [
     {
       "severity": "Bloquant | Majeur | Mineur",
@@ -488,9 +522,8 @@ def _full_prompt(mode: str, level: str, language: str, cite: bool) -> str:
             BASE_RULES,
             MODE_GUIDANCE[mode],
             FLOW_LEVEL_GUIDANCE[level],
-            "« sentiment » est un entier de -2 (très négatif) à 2 (très positif). "
-            "Dans « flow », le premier élément est de kind « entry », le dernier de kind « goal » ; "
-            "mets « breaking » à true pour les étapes où des utilisateurs décrochent. 5 à 7 éléments.",
+            "« sentiment » est un entier de -2 (très négatif) à 2 (très positif).",
+            FLOW_GRAPH_RULES[level],
             _language_rule(language),
             "Schéma JSON attendu :\n" + FLOW_SCHEMA,
         ]
@@ -889,14 +922,7 @@ def normalize_journey(data: dict[str, Any], doc_names: list[str]) -> dict[str, A
     if not phases:
         raise AnalysisError("Le modèle n'a reconstitué aucune étape de parcours.")
 
-    flow = []
-    raw_flow = [f for f in data.get("flow") or [] if isinstance(f, dict) and _s(f.get("label"))]
-    for i, f in enumerate(raw_flow):
-        kind = _s(f.get("kind")).lower()
-        if kind not in {"entry", "step", "goal"}:
-            kind = "entry" if i == 0 else ("goal" if i == len(raw_flow) - 1 else "step")
-        flow.append({"label": _s(f.get("label")), "kind": kind,
-                     "breaking": bool(f.get("breaking")), "exit": _s(f.get("exit"))})
+    flow = normalize_flow(data.get("flow"))
 
     priorities = []
     for p in data.get("priorities") or []:
@@ -923,6 +949,141 @@ def normalize_journey(data: dict[str, Any], doc_names: list[str]) -> dict[str, A
         "priorities": priorities,
         "sources": [{"document": d, "citations": 0} for d in doc_names],
     }
+
+
+# ---------------------------------------------------------------------------
+# Graphe de flux (structure libre) et rendu Mermaid
+# ---------------------------------------------------------------------------
+
+NODE_TYPES = {"entry", "step", "decision", "exit", "goal"}
+EDGE_KINDS = {"main", "alt", "exit", "loop"}
+MAX_NODES, MAX_EDGES = 40, 80
+
+
+def _linear_to_graph(items: list[Any]) -> dict[str, Any]:
+    """Ancien format (liste d'étapes avec points de sortie) converti en graphe."""
+    nodes, edges = [], []
+    steps = [f for f in items if isinstance(f, dict) and _s(f.get("label"))]
+    for i, f in enumerate(steps):
+        nid = f"s{i + 1}"
+        kind = _s(f.get("kind")).lower()
+        nodes.append({"id": nid, "label": _s(f.get("label")),
+                      "type": kind if kind in {"entry", "goal"} else "step",
+                      "friction": bool(f.get("breaking"))})
+        if i:
+            edges.append({"from": f"s{i}", "to": nid, "label": "", "kind": "main"})
+        if _s(f.get("exit")):
+            nodes.append({"id": f"x{i + 1}", "label": _s(f.get("exit")), "type": "exit", "friction": False})
+            edges.append({"from": nid, "to": f"x{i + 1}", "label": "", "kind": "exit"})
+    return {"nodes": nodes, "edges": edges}
+
+
+def normalize_flow(raw: Any) -> dict[str, Any]:
+    if isinstance(raw, list):
+        raw = _linear_to_graph(raw)
+    if not isinstance(raw, dict):
+        return {"nodes": [], "edges": [], "mermaid": ""}
+
+    nodes: list[dict[str, Any]] = []
+    ids: dict[str, str] = {}  # id fourni par le modèle -> id sûr pour Mermaid
+    for n in raw.get("nodes") or []:
+        if not isinstance(n, dict) or not _s(n.get("label")) or len(nodes) >= MAX_NODES:
+            continue
+        original = _s(str(n.get("id") or "")) or f"auto{len(nodes) + 1}"
+        if original in ids:
+            continue
+        safe = f"n{len(nodes) + 1}"
+        ids[original] = safe
+        ntype = _s(n.get("type")).lower()
+        nodes.append({
+            "id": safe,
+            "label": _s(n.get("label")),
+            "type": ntype if ntype in NODE_TYPES else "step",
+            "friction": bool(n.get("friction")),
+        })
+
+    by_id = {n["id"]: n for n in nodes}
+    edges: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for e in raw.get("edges") or []:
+        if not isinstance(e, dict) or len(edges) >= MAX_EDGES:
+            continue
+        a, b = ids.get(_s(str(e.get("from") or ""))), ids.get(_s(str(e.get("to") or "")))
+        if not a or not b or a == b or (a, b) in seen:
+            continue
+        seen.add((a, b))
+        kind = _s(e.get("kind")).lower()
+        if kind not in EDGE_KINDS:
+            kind = "exit" if by_id[b]["type"] == "exit" else "main"
+        edges.append({"from": a, "to": b, "label": _s(e.get("label")), "kind": kind})
+
+    # Graphe sans liens exploitables : on enchaîne les nœuds dans l'ordre.
+    if not edges and len(nodes) > 1:
+        edges = [{"from": x["id"], "to": y["id"], "label": "", "kind": "main"} for x, y in zip(nodes, nodes[1:])]
+
+    graph = {"nodes": nodes, "edges": edges}
+    graph["mermaid"] = to_mermaid(graph) if nodes else ""
+    return graph
+
+
+def _mermaid_text(text: str, width: int = 24) -> str:
+    """Échappe un libellé pour Mermaid et le coupe en lignes courtes."""
+    words, lines, current = text.split(), [], ""
+    for w in words:
+        if current and len(current) + 1 + len(w) > width:
+            lines.append(current)
+            current = w
+        else:
+            current = f"{current} {w}".strip()
+    if current:
+        lines.append(current)
+    safe = [
+        ln.replace("#", "#35;").replace('"', "#quot;").replace("<", "#lt;").replace(">", "#gt;").replace("|", "#124;")
+        for ln in lines[:4]
+    ]
+    return "<br/>".join(safe)
+
+
+_SHAPES = {
+    "entry": ('(["', '"])'),
+    "goal": ('(["', '"])'),
+    "step": ('["', '"]'),
+    "decision": ('{"', '"}'),
+    "exit": ('{{"', '"}}'),
+}
+
+_CLASS_DEFS = [
+    "classDef entry fill:#FFFFFF,stroke:#15171C,stroke-width:1.5px,color:#15171C",
+    "classDef step fill:#FFFFFF,stroke:#D5D9E2,stroke-width:1.5px,color:#15171C",
+    "classDef decision fill:#F4F5F8,stroke:#5A6070,stroke-width:1.5px,color:#15171C",
+    "classDef friction fill:#FFF8F3,stroke:#C2560F,stroke-width:2px,color:#7E3A0A",
+    "classDef exit fill:#FFFFFF,stroke:#C2560F,stroke-width:1.5px,stroke-dasharray:4 3,color:#7E3A0A",
+    "classDef goal fill:#EEF0FD,stroke:#3346D3,stroke-width:2px,color:#2433A8",
+]
+
+_LINK_STYLES = {
+    "main": "stroke:#5A6070,stroke-width:2px",
+    "alt": "stroke:#9AA1B0,stroke-width:1.5px",
+    "exit": "stroke:#C2560F,stroke-width:1.5px,stroke-dasharray:4 3",
+    "loop": "stroke:#3346D3,stroke-width:1.5px,stroke-dasharray:2 3",
+}
+
+
+def to_mermaid(graph: dict[str, Any]) -> str:
+    direction = "LR" if len(graph["nodes"]) <= 10 else "TB"
+    lines = [f"flowchart {direction}"]
+    for n in graph["nodes"]:
+        start, end = _SHAPES[n["type"]]
+        cls = "friction" if n["friction"] and n["type"] in {"step", "decision", "entry"} else n["type"]
+        lines.append(f"  {n['id']}{start}{_mermaid_text(n['label'])}{end}:::{cls}")
+    for e in graph["edges"]:
+        arrow = "-->" if e["kind"] in {"main", "alt"} else "-.->"
+        label = f'|"{_mermaid_text(e["label"], 20)}"|' if e["label"] else ""
+        lines.append(f"  {e['from']} {arrow}{label} {e['to']}")
+    lines += [f"  {c}" for c in _CLASS_DEFS]
+    for i, e in enumerate(graph["edges"]):
+        lines.append(f"  linkStyle {i} {_LINK_STYLES[e['kind']]}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -971,11 +1132,14 @@ def to_markdown(analysis: Analysis) -> str:
             for o in ph["opportunities"]:
                 lines.append(f"- **Opportunité :** {o}")
             lines.append("")
-        if r.get("flow"):
-            lines += ["## Flux principal et points de sortie", ""]
-            for f in r["flow"]:
-                exit_ = f" — sortie : {f['exit']}" if f["exit"] else ""
-                lines.append(f"- {f['label']}{exit_}")
+        flow = r.get("flow") or {}
+        if flow.get("nodes"):
+            labels = {n["id"]: n["label"] for n in flow["nodes"]}
+            kinds = {"main": "", "alt": " (alternatif)", "exit": " (abandon)", "loop": " (retour)"}
+            lines += ["## Flux et points de sortie", "", "```mermaid", flow["mermaid"], "```", ""]
+            for e in flow["edges"]:
+                cond = f" — {e['label']}" if e["label"] else ""
+                lines.append(f"- {labels[e['from']]} → {labels[e['to']]}{kinds[e['kind']]}{cond}")
             lines.append("")
         if r.get("priorities"):
             lines += ["## Frictions prioritaires", ""]

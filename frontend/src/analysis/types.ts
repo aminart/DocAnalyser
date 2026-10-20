@@ -85,10 +85,24 @@ export interface JourneyPhase {
 }
 
 export interface FlowNode {
+  id: string;
   label: string;
-  kind: 'entry' | 'step' | 'goal';
-  breaking: boolean;
-  exit: string;
+  type: 'entry' | 'step' | 'decision' | 'exit' | 'goal';
+  friction: boolean;
+}
+
+export interface FlowEdge {
+  from: string;
+  to: string;
+  label: string;
+  kind: 'main' | 'alt' | 'exit' | 'loop';
+}
+
+/** Graphe libre reconstitué depuis les documents ; « mermaid » est généré par le backend. */
+export interface FlowGraph {
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+  mermaid: string;
 }
 
 export interface Priority {
@@ -105,7 +119,7 @@ export interface JourneyResult {
   title: string;
   brief: string;
   phases: JourneyPhase[];
-  flow: FlowNode[];
+  flow: FlowGraph;
   priorities: Priority[];
   sources: SourceCount[];
 }
