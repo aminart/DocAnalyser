@@ -280,8 +280,7 @@ export const ReportBanner: React.FC<{
   onNewAnalysis: () => void;
   showCopy?: boolean;
   chips: string[];
-  aside?: React.ReactNode;
-}> = ({ analysis, onNewAnalysis, showCopy, chips, aside }) => {
+}> = ({ analysis, onNewAnalysis, showCopy, chips }) => {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -336,7 +335,6 @@ export const ReportBanner: React.FC<{
               </span>
             ))}
           </div>
-          {aside}
         </div>
       </div>
     </div>

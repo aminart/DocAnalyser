@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { LEVELS } from './ConfigScreen';
-import { Analysis, AnalysisLevel, ThemesResult } from './types';
+import { Analysis, ThemesResult } from './types';
 import {
   Disclaimer,
   Emphasis,
@@ -30,12 +29,10 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
   result,
   onNewAnalysis,
 }) => {
-  const [level, setLevel] = useState<AnalysisLevel>(analysis.level);
   const [closed, setClosed] = useState<number[]>([]);
   const nDocs = analysis.documents.length;
-  const showBody = level !== 'synth';
-  const showSources = level !== 'synth' && analysis.cite;
-  const showNuance = level === 'deep';
+  // Tout ce que le modèle a rédigé est affiché : le niveau a déjà réglé la profondeur de la synthèse.
+  const showSources = analysis.cite;
   const actionsLabel = ACTIONS_LABEL[analysis.mode] ?? ACTIONS_LABEL.global;
 
   const themes = result.themes.map((t, i) => ({
@@ -60,27 +57,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
         analysis={analysis}
         onNewAnalysis={onNewAnalysis}
         showCopy
-        chips={[analysis.mode_label, docCountLabel(nDocs), modelLabel(analysis)]}
-        aside={
-          <div role="group" aria-label="Niveau d'affichage" className="ml-auto flex gap-0.5 rounded-[10px] bg-chip p-[3px]">
-            {LEVELS.map((l) => {
-              const on = l.id === level;
-              return (
-                <button
-                  key={l.id}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => setLevel(l.id)}
-                  className={`min-h-9 rounded-lg border-none px-3.5 text-sm font-semibold ${
-                    on ? 'bg-white text-ink shadow-[0_1px_2px_rgba(20,23,31,0.12)]' : 'bg-transparent text-body'
-                  }`}
-                >
-                  {l.title}
-                </button>
-              );
-            })}
-          </div>
-        }
+        chips={[analysis.mode_label, analysis.level_label, docCountLabel(nDocs), modelLabel(analysis)]}
       />
 
       <div className="mx-auto box-border flex max-w-[1280px] flex-wrap items-start gap-10 px-8 pb-24 pt-8">
@@ -232,7 +209,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                         <span className="mt-[9px] h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: t.ink }} />
                         <div className="flex flex-col gap-1.5">
                           <span className="text-base font-bold leading-[1.4]">{p.lead}</span>
-                          {showBody && p.body && (
+                          {p.body && (
                             <span className="font-serif text-[17px] leading-[1.6] text-prose">{p.body}</span>
                           )}
                           {showSources && p.sources.length > 0 && (
@@ -254,7 +231,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                     ))}
                   </ul>
 
-                  {showBody && t.quote && (
+                  {t.quote && (
                     <figure className="m-0 flex flex-col gap-2.5 rounded-xl px-[26px] py-[22px]" style={{ background: t.soft }}>
                       <blockquote className="m-0 font-serif text-[21px] italic leading-normal text-ink">
                         « {t.quote} »
@@ -267,7 +244,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                     </figure>
                   )}
 
-                  {showNuance && t.nuance && (
+                  {t.nuance && (
                     <div className="flex gap-3 rounded-xl border border-dashed border-[#C3C9D6] px-[18px] py-4">
                       <Icons.nuance size={20} className="mt-0.5 shrink-0 text-chip-ink" />
                       <div className="flex flex-col gap-0.5">

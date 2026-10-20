@@ -51,9 +51,9 @@ export const MODES: {
 ];
 
 export const LEVELS: { id: AnalysisLevel; title: string; desc: string; bars: number; minutes: number }[] = [
-  { id: 'synth', title: 'Synthétique', desc: 'L’essentiel : 3 à 5 points clés par thème.', bars: 3, minutes: 1 },
-  { id: 'detail', title: 'Détaillé', desc: 'Points argumentés, exemples et verbatims choisis.', bars: 5, minutes: 2 },
-  { id: 'deep', title: 'Très détaillé', desc: 'Analyse exhaustive, nuances et sources pour chaque point.', bars: 7, minutes: 4 },
+  { id: 'synth', title: 'Synthétique', desc: 'Tous les thèmes, rédigés à l’essentiel : une phrase par point clé.', bars: 3, minutes: 1 },
+  { id: 'detail', title: 'Détaillé', desc: 'Chaque point développé avec un exemple et un verbatim par thème.', bars: 5, minutes: 2 },
+  { id: 'deep', title: 'Très détaillé', desc: 'Points argumentés et décomposés, nuances et sources pour chacun.', bars: 7, minutes: 4 },
 ];
 
 const BAR_WIDTHS = ['100%', '80%', '92%', '64%', '100%', '76%', '88%'];

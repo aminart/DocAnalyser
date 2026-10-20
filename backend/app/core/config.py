@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     CUSTOM_LLM_CA_BUNDLE: Optional[str] = None
     CUSTOM_LLM_AVAILABLE_MODELS: str = ""
     CUSTOM_LLM_CONTEXT_TOKENS: int = 128000
+    CUSTOM_LLM_MAX_OUTPUT_TOKENS: int = 0  # 0 : valeur par défaut du serveur
 
     # 2. Fournisseur complémentaire compatible OpenAI
     CUSTOM_LLM_2_PROVIDER_NAME: str = "Fournisseur complémentaire"
@@ -32,6 +33,7 @@ class Settings(BaseSettings):
     CUSTOM_LLM_2_CA_BUNDLE: Optional[str] = None
     CUSTOM_LLM_2_AVAILABLE_MODELS: str = ""
     CUSTOM_LLM_2_CONTEXT_TOKENS: int = 128000
+    CUSTOM_LLM_2_MAX_OUTPUT_TOKENS: int = 0  # 0 : valeur par défaut du serveur
 
     # 3. Clés de test : Google Gemini et Anthropic Claude
     GEMINI_API_KEY: str = ""

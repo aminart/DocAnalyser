@@ -41,6 +41,11 @@ LEVEL_LABELS: dict[str, str] = {"synth": "Synthétique", "detail": "Détaillé",
 CHARS_PER_TOKEN = 3.2  # estimation prudente pour le français
 RESERVED_TOKENS = 16_000
 TEMPERATURE = 0.2
+MAX_CONTINUATIONS = 3
+CONTINUE_PROMPT = (
+    "Ta réponse a été coupée faute de place. Reprends exactement au caractère où tu t'es arrêté, "
+    "sans rien répéter ni ajouter de commentaire."
+)
 
 
 class AnalysisError(Exception):
@@ -61,6 +66,7 @@ class ProviderConf:
     ca_bundle: str
     context_tokens: int
     models: tuple[str, ...]
+    max_output_tokens: int = 0  # 0 : valeur par défaut du serveur
 
 
 @dataclass(frozen=True)
@@ -99,6 +105,7 @@ def providers() -> list[ProviderConf]:
             ca_bundle=(getattr(settings, f"{key}_CA_BUNDLE") or "").strip(),
             context_tokens=getattr(settings, f"{key}_CONTEXT_TOKENS"),
             models=_names(getattr(settings, f"{key}_AVAILABLE_MODELS")),
+            max_output_tokens=getattr(settings, f"{key}_MAX_OUTPUT_TOKENS"),
         )
         for key in ("CUSTOM_LLM", "CUSTOM_LLM_2")
     ]
@@ -110,7 +117,8 @@ def providers() -> list[ProviderConf]:
     ]
     for key, kind, name, api_key, ca, ctx, models in tests:
         if settings._is_key_set(api_key or ""):
-            out.append(ProviderConf(key, kind, name, api_key.strip(), "", (ca or "").strip(), ctx, _names(models)))
+            out.append(ProviderConf(key, kind, name, api_key.strip(), "", (ca or "").strip(), ctx, _names(models),
+                                    max_output_tokens=32_000))
     return out
 
 
@@ -213,18 +221,41 @@ async def _complete(spec: ModelSpec, system_prompt: str, user_content: str, want
     if want_json and prov.kind != "anthropic":
         kwargs["response_format"] = {"type": "json_object"}
 
-    response = await litellm.acompletion(
-        model=f"{prov.kind}/{spec.name}",
-        temperature=TEMPERATURE,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        num_retries=2,
-        timeout=600,
-        **kwargs,
-    )
-    content = (response.choices[0].message.content or "").strip()
+    if prov.max_output_tokens:
+        kwargs["max_tokens"] = prov.max_output_tokens
+
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
+    parts: list[str] = []
+    for _ in range(1 + MAX_CONTINUATIONS):
+        response = await litellm.acompletion(
+            model=f"{prov.kind}/{spec.name}",
+            temperature=TEMPERATURE,
+            messages=messages,
+            num_retries=2,
+            timeout=600,
+            **kwargs,
+        )
+        choice = response.choices[0]
+        chunk = choice.message.content or ""
+        parts.append(chunk)
+        if choice.finish_reason != "length" or not chunk:
+            break
+        # Réponse coupée faute de place : on demande la suite pour ne rien perdre de la fin.
+        messages += [
+            {"role": "assistant", "content": chunk},
+            {"role": "user", "content": CONTINUE_PROMPT},
+        ]
+        kwargs.pop("response_format", None)  # la suite n'est pas un objet JSON complet
+    else:
+        raise AnalysisError(
+            f"La synthèse produite par {spec.name} dépasse sa longueur maximale de réponse, même en plusieurs parties. "
+            "Essayez un modèle à plus grande capacité de sortie."
+        )
+
+    content = "".join(parts).strip()
     if not content:
         raise AnalysisError(f"Réponse vide du modèle {spec.name}.")
     return content
@@ -374,12 +405,28 @@ MODE_GUIDANCE: dict[str, str] = {
     ),
 }
 
+# Le niveau règle la profondeur de rédaction de chaque élément, jamais le nombre
+# d'éléments : tous les thèmes, étapes et frictions présents dans le corpus sont traités.
+COMPLETENESS_RULE = (
+    "Exhaustivité : traite tous les thèmes (ou étapes) importants présents dans le corpus, y compris ceux qui "
+    "apparaissent en fin de document. Leur nombre dépend uniquement du corpus, pas du niveau demandé. "
+    "Ne supprime jamais un élément important pour raccourcir ; le niveau ne change que la profondeur de rédaction."
+)
+
 LEVEL_GUIDANCE: dict[str, str] = {
-    "synth": "Niveau synthétique : 3 à 4 thèmes, 2 à 3 points clés par thème, corps de point en 1 phrase.",
-    "detail": "Niveau détaillé : 3 à 6 thèmes, 3 à 4 points clés par thème, corps de point en 2 à 3 phrases avec exemples.",
+    "synth": (
+        "Niveau synthétique : rédaction concise. Pour chaque thème, les points clés essentiels ; "
+        "chaque point tient en une phrase courte. Résumé du thème en 1 à 2 phrases. "
+        "Verbatim et nuance seulement s'ils sont marquants."
+    ),
+    "detail": (
+        "Niveau détaillé : chaque point clé est développé en 2 à 3 phrases avec un exemple tiré du corpus. "
+        "Un verbatim marquant par thème ; nuance ou divergence quand le corpus en montre une."
+    ),
     "deep": (
-        "Niveau très détaillé : 4 à 8 thèmes, 4 à 6 points clés par thème, corps de point argumenté (3 à 5 phrases), "
-        "nuances systématiques et sources précises pour chaque point."
+        "Niveau très détaillé : chaque point clé est argumenté (3 à 5 phrases), avec exemples, chiffres et contexte ; "
+        "décompose les thèmes en points fins. Pour chaque thème : verbatim, nuance ou point de divergence, "
+        "sources précises pour chaque point."
     ),
 }
 
@@ -393,19 +440,28 @@ FLOW_GRAPH_RULES: dict[str, str] = {
         "« goal » objectif atteint. Mets « friction » à true sur les nœuds où des utilisateurs bloquent ou décrochent. "
         "Types de liens : « main » chemin principal, « alt » chemin alternatif, « exit » vers un abandon, "
         "« loop » retour en arrière ou répétition. "
-        f"Taille : {size}."
+        f"Granularité : {grain} Le graphe compte autant de nœuds que le parcours en décrit réellement."
     )
-    for level, size in {
-        "synth": "6 à 12 nœuds",
-        "detail": "8 à 20 nœuds",
-        "deep": "10 à 30 nœuds",
+    for level, grain in {
+        "synth": "regroupe les micro-étapes en étapes clés, mais garde toutes les décisions, abandons et retours.",
+        "detail": "une étape par action ou écran significatif.",
+        "deep": "détaille chaque écran, choix, condition et cas particulier décrits dans le corpus.",
     }.items()
 }
 
 FLOW_LEVEL_GUIDANCE: dict[str, str] = {
-    "synth": "Niveau synthétique : 4 à 5 étapes, 1 friction et 1 opportunité par étape, 2 à 3 frictions prioritaires.",
-    "detail": "Niveau détaillé : 4 à 6 étapes, 1 à 2 frictions et opportunités par étape, 3 à 4 frictions prioritaires.",
-    "deep": "Niveau très détaillé : 5 à 7 étapes, 1 à 3 frictions et opportunités par étape, 4 à 6 frictions prioritaires.",
+    "synth": (
+        "Niveau synthétique : textes courts (une phrase). Les étapes du parcours sont les grandes phases ; "
+        "pour chacune, les frictions et opportunités principales."
+    ),
+    "detail": (
+        "Niveau détaillé : chaque étape décrit précisément ce que fait l'utilisateur ; "
+        "frictions et opportunités formulées avec leur contexte."
+    ),
+    "deep": (
+        "Niveau très détaillé : phases fines, toutes les frictions et opportunités citées dans le corpus, "
+        "frictions prioritaires argumentées avec verbatim et fréquence."
+    ),
 }
 
 BASE_RULES = (
@@ -510,6 +566,7 @@ def _outline_prompt(mode: str, level: str, language: str) -> str:
         BASE_RULES,
         MODE_GUIDANCE[mode],
         f"Première passe : identifie uniquement {target}.",
+        COMPLETENESS_RULE,
         guidance,
         _language_rule(language),
         "Schéma JSON attendu :\n" + schema,
@@ -521,6 +578,7 @@ def _full_prompt(mode: str, level: str, language: str, cite: bool) -> str:
         parts = [
             BASE_RULES,
             MODE_GUIDANCE[mode],
+            COMPLETENESS_RULE,
             FLOW_LEVEL_GUIDANCE[level],
             "« sentiment » est un entier de -2 (très négatif) à 2 (très positif).",
             FLOW_GRAPH_RULES[level],
@@ -531,8 +589,9 @@ def _full_prompt(mode: str, level: str, language: str, cite: bool) -> str:
         parts = [
             BASE_RULES,
             MODE_GUIDANCE[mode],
+            COMPLETENESS_RULE,
             LEVEL_GUIDANCE[level],
-            "« theme » dans actions est le numéro (1, 2, ...) du thème concerné. 3 à 6 pistes d'action.",
+            "« theme » dans actions est le numéro (1, 2, ...) du thème concerné. Autant de pistes d'action que le corpus en justifie.",
             "Indique les sources de chaque point." if cite else "Laisse « sources » vide ([]) pour chaque point.",
             _language_rule(language),
             "Schéma JSON attendu :\n" + THEMES_SCHEMA,
@@ -750,7 +809,7 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
         # 4. Rédaction
         _enter(analysis, 3)
         plan_label = "Étapes identifiées" if analysis.mode == "flow" else "Thèmes identifiés"
-        user = f"{plan_label} lors de la première passe (à suivre, ajustables si le corpus l'exige) :\n" + \
+        user = f"{plan_label} lors de la première passe (traite-les tous ; ajoutes-en si le corpus l'exige) :\n" + \
             "\n".join(f"{i + 1}. {n}" for i, n in enumerate(names)) + "\n\nCorpus :\n\n" + corpus
         full_raw = await _with_creep(
             analysis, 90,
@@ -957,7 +1016,7 @@ def normalize_journey(data: dict[str, Any], doc_names: list[str]) -> dict[str, A
 
 NODE_TYPES = {"entry", "step", "decision", "exit", "goal"}
 EDGE_KINDS = {"main", "alt", "exit", "loop"}
-MAX_NODES, MAX_EDGES = 40, 80
+MAX_NODES, MAX_EDGES = 150, 300  # garde-fou d'affichage uniquement
 
 
 def _linear_to_graph(items: list[Any]) -> dict[str, Any]:
