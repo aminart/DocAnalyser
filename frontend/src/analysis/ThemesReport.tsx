@@ -9,6 +9,7 @@ import {
   docCountLabel,
   extOf,
   modelLabel,
+  CoverageNote,
   QuoteNotice,
   shortDocName,
   themeColor,
@@ -116,6 +117,9 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                 </div>
               );
             })}
+            <div className="px-3 pt-1">
+              <CoverageNote coverage={result.coverage} />
+            </div>
           </div>
         </aside>
 

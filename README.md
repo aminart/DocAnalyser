@@ -62,6 +62,7 @@ La synthèse doit pouvoir remplacer la lecture des documents. L'application appl
 - **Verbatims vérifiés** dans le texte réel : exact, légèrement reformulé, ou introuvable (signalé « à vérifier » à l'écran et dans l'export).
 - **Signaux** : document dont rien n'a été retenu, parties non lues, estimations du modèle (ressenti, gravité).
 - **Pas de troncature** : une réponse coupée faute de place est reprise automatiquement là où le modèle s'est arrêté.
+- **Corpus volumineux** (plus grand que la fenêtre du modèle, fréquent avec Mistral Medium ou Small) : analyse automatique par lots. Chaque lot donne des éléments sourcés (faits, chiffres, décisions, verbatims…) recopiés avec leur repère. Ils sont ensuite classés en thèmes ; un élément non classé va dans « Autres points », il n'est jamais perdu. Enfin, chaque thème est rédigé à partir de ses éléments et des passages d'origine. Réglez `CUSTOM_LLM_CONTEXT_TOKENS` sur la fenêtre réelle du modèle.
 
 ## 4. API
 

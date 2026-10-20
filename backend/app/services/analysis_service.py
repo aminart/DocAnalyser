@@ -112,9 +112,9 @@ def providers() -> list[ProviderConf]:
     ]
     tests = [
         ("GEMINI", "gemini", "Google Gemini (test)", settings.GEMINI_API_KEY,
-         settings.GEMINI_CA_BUNDLE, 1_000_000, settings.GEMINI_TEST_MODELS),
+         settings.GEMINI_CA_BUNDLE, settings.GEMINI_CONTEXT_TOKENS, settings.GEMINI_TEST_MODELS),
         ("ANTHROPIC", "anthropic", "Anthropic Claude (test)", settings.ANTHROPIC_API_KEY,
-         settings.ANTHROPIC_CA_BUNDLE, 200_000, settings.ANTHROPIC_TEST_MODELS),
+         settings.ANTHROPIC_CA_BUNDLE, settings.ANTHROPIC_CONTEXT_TOKENS, settings.ANTHROPIC_TEST_MODELS),
     ]
     for key, kind, name, api_key, ca, ctx, models in tests:
         if settings._is_key_set(api_key or ""):
@@ -263,6 +263,7 @@ async def _complete(spec: ModelSpec, system_prompt: str, user_content: str, want
 
 
 _RETRYABLE = (litellm.RateLimitError, litellm.ServiceUnavailableError, litellm.InternalServerError, litellm.Timeout)
+RETRY_WAITS = (5, 15, 40)  # secondes, en cas de surcharge du fournisseur
 
 
 def _friendly_error(spec: ModelSpec, exc: Exception) -> str:
@@ -273,6 +274,9 @@ def _friendly_error(spec: ModelSpec, exc: Exception) -> str:
         return f"La clé API du fournisseur « {spec.provider.name} » a été refusée : vérifiez {spec.provider.key}_API_KEY dans backend/.env."
     if isinstance(exc, litellm.NotFoundError):
         return f"Le modèle {spec.name} n'est pas disponible chez le fournisseur."
+    if isinstance(exc, (litellm.ServiceUnavailableError, litellm.InternalServerError)):
+        return (f"Le fournisseur de {spec.name} est momentanément surchargé et n'a pas répondu malgré plusieurs essais. "
+                "Relancez l'analyse dans quelques minutes.")
     if isinstance(exc, litellm.Timeout):
         return f"Le modèle {spec.name} n'a pas répondu à temps. Réessayez avec un niveau moins détaillé."
     if isinstance(exc, litellm.ContextWindowExceededError):
@@ -458,7 +462,8 @@ BASE_RULES = (
     "elle doit être d'une fidélité absolue au corpus. Règles impératives :\n"
     "- N'invente rien : chaque affirmation, chiffre, nom, date ou fréquence doit figurer dans le corpus. "
     "Si une information n'y est pas, laisse le champ vide plutôt que de la deviner.\n"
-    "- Ne déforme pas : conserve le sens, les nuances, les chiffres et les désaccords tels qu'ils sont exprimés.\n"
+    "- Ne déforme pas : conserve le sens, les nuances et les désaccords tels qu'ils sont exprimés, et reprends tels "
+    "quels les chiffres, durées, montants, dates, lieux et noms utiles.\n"
     "- Les citations (verbatims) sont recopiées mot pour mot depuis le corpus, sans les reformuler ni les traduire.\n"
     "- Exploite chaque document fourni ; n'en ignore aucun.\n"
     "- Les noms de documents sont recopiés exactement tels qu'indiqués dans les balises [SOURCE: ...]. "
@@ -594,15 +599,6 @@ def _full_prompt(mode: str, level: str, language: str, cite: bool) -> str:
     return "\n\n".join(parts)
 
 
-CONDENSE_PROMPT = (
-    "Tu prépares un corpus pour une analyse qualitative ; ton résumé remplacera l'extrait. Condense-le en notes "
-    "factuelles denses sans rien perdre d'utile : toutes les idées, constats, chiffres, décisions, frictions, "
-    "désaccords, et tous les verbatims marquants recopiés mot pour mot. N'ajoute aucune interprétation. "
-    "Conserve pour chaque note la balise [SOURCE: document | LOC: emplacement] et le repère de ligne d'origine. "
-    "Réponds en texte brut, sans introduction."
-)
-
-
 # ---------------------------------------------------------------------------
 # Jobs
 # ---------------------------------------------------------------------------
@@ -636,6 +632,8 @@ class Analysis:
     error: str | None = None
     task: asyncio.Task | None = None
     active_model_id: str = ""
+    batched: bool = False  # corpus trop grand pour le modèle : analyse par lots
+    step_notes: dict[int, str] = field(default_factory=dict)  # précisions d'étape (« lot 3/6 »)
 
     def step_details(self) -> list[str]:
         total_pages = sum(d.pages for d in self.documents)
@@ -657,6 +655,8 @@ class Analysis:
         for i, (key, label, start, end) in enumerate(STEP_DEFS):
             if key == "themes" and self.mode == "flow":
                 label = "Identification des étapes du parcours"
+            if key == "index" and self.batched:
+                label = "Découpage et extraction par lots"
             if self.status == "done" or i < self.step:
                 state, local = "done", 100
             elif i == self.step and self.status == "running":
@@ -664,7 +664,8 @@ class Analysis:
                 local = round(max(0.0, min(1.0, (self.progress - start) / (end - start))) * 100)
             else:
                 state, local = "pending", 0
-            steps.append({"key": key, "label": label, "detail": details[i], "state": state, "progress": local})
+            detail = self.step_notes.get(i, details[i])
+            steps.append({"key": key, "label": label, "detail": detail, "state": state, "progress": local})
         spec = next((m for m in all_models() if m.id == (self.active_model_id or self.model_id)), None)
         return {
             "id": self.id,
@@ -758,16 +759,24 @@ async def _call(analysis: Analysis, chain: list[ModelSpec], system_prompt: str, 
     start = next((i for i, m in enumerate(chain) if m.id == analysis.active_model_id), 0)
     last: Exception | None = None
     for spec in chain[start:]:
-        try:
-            out = await _complete(spec, system_prompt, user, want_json)
-            analysis.active_model_id = spec.id
-            return out
-        except _RETRYABLE as exc:
-            last = exc
-        except AnalysisError:
-            raise
-        except Exception as exc:
-            raise AnalysisError(_friendly_error(spec, exc)) from exc
+        for attempt, wait in enumerate((0, *RETRY_WAITS)):
+            if wait:
+                await asyncio.sleep(wait)  # surcharge passagère : on patiente avant de réessayer
+            try:
+                out = await _complete(spec, system_prompt, user, want_json)
+                analysis.active_model_id = spec.id
+                return out
+            except litellm.RateLimitError as exc:
+                last = exc
+                if re.search(r"per ?day|PerDay|daily", str(exc), re.I):
+                    break  # quota journalier épuisé : inutile d'insister, modèle suivant
+                # limite par minute : elle se lève d'elle-même, on réessaie après une pause
+            except _RETRYABLE as exc:
+                last = exc
+            except AnalysisError:
+                raise
+            except Exception as exc:
+                raise AnalysisError(_friendly_error(spec, exc)) from exc
     raise AnalysisError(_friendly_error(chain[-1] if len(chain) > 1 else chain[0], last or Exception()))
 
 
@@ -777,48 +786,31 @@ def _enter(analysis: Analysis, step: int) -> None:
 
 
 async def _run(analysis: Analysis, spec: ModelSpec) -> None:
+    from app.services import batch_pipeline  # import local : le module dépend de celui-ci
+
     chain = fallback_chain(spec)
     try:
         # 1. Lecture
         _enter(analysis, 0)
         segments = [b.to_prompt_segment() for d in analysis.documents for b in d.blocks]
+        corpus = "\n".join(segments)
+        checker = QuoteChecker("\n".join(d.plain_text() for d in analysis.documents))
         await asyncio.sleep(0.6)  # laisse l'interface afficher l'étape
 
-        # 2. Découpage / indexation (condensation si dépassement de contexte)
-        _enter(analysis, 1)
-        corpus = await _build_corpus(analysis, chain, segments)
-
-        # 3. Thèmes / étapes
-        _enter(analysis, 2)
-        outline_raw = await _with_creep(
-            analysis, 60,
-            _call(analysis, chain, _outline_prompt(analysis.mode, analysis.level, analysis.language), corpus),
-        )
-        outline = _parse_json(outline_raw)
-        analysis.title = str(outline.get("title") or "").strip()
-        items = outline.get("phases" if analysis.mode == "flow" else "themes") or []
-        names = [str(i.get("name") or i.get("title") or "").strip() for i in items if isinstance(i, dict)]
-        for name in [n for n in names if n]:
-            analysis.preview.append(name)
-            await asyncio.sleep(0.35)
-
-        # 4. Rédaction
-        _enter(analysis, 3)
-        plan_label = "Étapes identifiées" if analysis.mode == "flow" else "Thèmes identifiés"
-        user = f"{plan_label} lors de la première passe (traite-les tous ; ajoutes-en si le corpus l'exige) :\n" + \
-            "\n".join(f"{i + 1}. {n}" for i, n in enumerate(names)) + "\n\nCorpus :\n\n" + corpus
-        full_raw = await _with_creep(
-            analysis, 90,
-            _call(analysis, chain, _full_prompt(analysis.mode, analysis.level, analysis.language, analysis.cite), user),
-        )
+        if batch_pipeline.needs_batches(chain[0], corpus):
+            # Corpus plus grand que la fenêtre du modèle : extraction par lots, puis rédaction thème par thème.
+            analysis.batched = True
+            run = batch_pipeline.run_flow if analysis.mode == "flow" else batch_pipeline.run_themes
+            data = await run(analysis, chain, checker)
+        else:
+            data = await _run_single_pass(analysis, chain, corpus)
 
         # 5. Mise en forme
         _enter(analysis, 4)
-        data = _parse_json(full_raw)
         doc_names = [d.name for d in analysis.documents]
-        checker = QuoteChecker("\n".join(d.plain_text() for d in analysis.documents))
         normalize = normalize_journey if analysis.mode == "flow" else normalize_themes
         result = normalize(data, doc_names, checker)
+        result["coverage"] = data.get("coverage")
         analysis.title = result["title"] or analysis.title or MODE_LABELS[analysis.mode]
         result["title"] = analysis.title
         analysis.result = result
@@ -833,38 +825,35 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
         analysis.status, analysis.error = "failed", f"Erreur inattendue : {str(exc)[:300]}"
 
 
-async def _build_corpus(analysis: Analysis, chain: list[ModelSpec], segments: list[str]) -> str:
-    spec = chain[0]
-    corpus = "\n".join(segments)
-    max_chars = int((spec.context_tokens - RESERVED_TOKENS) * CHARS_PER_TOKEN)
-    if len(corpus) <= max_chars:
-        analysis.progress = 30
-        return corpus
+async def _run_single_pass(analysis: Analysis, chain: list[ModelSpec], corpus: str) -> dict[str, Any]:
+    """Le corpus tient dans la fenêtre du modèle : repérage des thèmes puis rédaction, sur le texte intégral."""
+    _enter(analysis, 1)
+    analysis.progress = 30
 
-    # Dépassement : découpage en lots puis condensation fidèle de chaque lot.
-    batch_chars = max_chars // 2
-    batches, current, size = [], [], 0
-    for seg in segments:
-        if size + len(seg) > batch_chars and current:
-            batches.append("\n".join(current))
-            current, size = [], 0
-        current.append(seg)
-        size += len(seg)
-    if current:
-        batches.append("\n".join(current))
+    # 3. Thèmes / étapes
+    _enter(analysis, 2)
+    outline_raw = await _with_creep(
+        analysis, 60,
+        _call(analysis, chain, _outline_prompt(analysis.mode, analysis.level, analysis.language), corpus),
+    )
+    outline = _parse_json(outline_raw)
+    analysis.title = str(outline.get("title") or "").strip()
+    items = outline.get("phases" if analysis.mode == "flow" else "themes") or []
+    names = [str(i.get("name") or i.get("title") or "").strip() for i in items if isinstance(i, dict)]
+    for name in [n for n in names if n]:
+        analysis.preview.append(name)
+        await asyncio.sleep(0.35)
 
-    sem = asyncio.Semaphore(settings.MAX_CONCURRENT_LLM_REQUESTS)
-    done = 0
-
-    async def condense(batch: str) -> str:
-        nonlocal done
-        async with sem:
-            out = await _call(analysis, chain, CONDENSE_PROMPT, batch, want_json=False)
-        done += 1
-        analysis.progress = 15 + 15 * done / len(batches)
-        return out
-
-    return "\n\n".join(await asyncio.gather(*(condense(b) for b in batches)))
+    # 4. Rédaction
+    _enter(analysis, 3)
+    plan_label = "Étapes identifiées" if analysis.mode == "flow" else "Thèmes identifiés"
+    user = f"{plan_label} lors de la première passe (traite-les tous ; ajoutes-en si le corpus l'exige) :\n" + \
+        "\n".join(f"{i + 1}. {n}" for i, n in enumerate(names)) + "\n\nCorpus :\n\n" + corpus
+    full_raw = await _with_creep(
+        analysis, 90,
+        _call(analysis, chain, _full_prompt(analysis.mode, analysis.level, analysis.language, analysis.cite), user),
+    )
+    return _parse_json(full_raw)
 
 
 # ---------------------------------------------------------------------------
@@ -1045,6 +1034,12 @@ def normalize_journey(data: dict[str, Any], doc_names: list[str], checker: Quote
         "phases": phases,
         "flow": flow,
         "priorities": priorities,
+        # Éléments extraits (analyse par lots) que le parcours n'a pas repris : affichés tels quels.
+        "extra": [
+            {"text": _s(e.get("text")), "document": _match_doc(_s(e.get("document")), doc_names) or "",
+             "location": _s(e.get("location"))}
+            for e in data.get("extra") or [] if isinstance(e, dict) and _s(e.get("text"))
+        ],
         "sources": [{"document": d, "citations": 0} for d in doc_names],
     }
 
@@ -1203,6 +1198,8 @@ def to_markdown(analysis: Analysis) -> str:
         f"_{MODE_LABELS[analysis.mode]} · {LEVEL_LABELS[analysis.level]} · "
         f"{len(analysis.documents)} document(s) · {spec.name if spec else analysis.model_id}_",
         "",
+        *([f"_Corpus volumineux analysé en {cov['batches']} lots ({cov['items']} éléments extraits)._", ""]
+          if (cov := r.get("coverage")) else []),
         "## En bref",
         "",
         r.get("brief", "").replace("*", "**") if r.get("brief") else "",
@@ -1244,6 +1241,10 @@ def to_markdown(analysis: Analysis) -> str:
             for e in flow["edges"]:
                 cond = f" — {e['label']}" if e["label"] else ""
                 lines.append(f"- {labels[e['from']]} → {labels[e['to']]}{kinds[e['kind']]}{cond}")
+            lines.append("")
+        if r.get("extra"):
+            lines += ["## Autres éléments des documents", ""]
+            lines += [f"- {e['text']}" + (f" _({e['document']} {e['location']})_" if e["document"] else "") for e in r["extra"]]
             lines.append("")
         if r.get("priorities"):
             lines += ["## Frictions prioritaires", ""]

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Analysis, JourneyResult, Priority } from './types';
 import { FlowDiagram } from './FlowDiagram';
-import { Disclaimer, Emphasis, QuoteNotice, ReportBanner, docCountLabel, modelLabel } from './ui';
+import { CoverageNote, Disclaimer, Emphasis, QuoteNotice, ReportBanner, docCountLabel, modelLabel } from './ui';
 
 const SEVERITY: Record<Priority['severity'], [string, string]> = {
   Bloquant: ['#FCE4E2', '#9B2216'],
@@ -70,6 +70,7 @@ export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult
             <p className="m-0 mt-auto text-xs leading-normal text-muted">
               Ressenti et gravité sont estimés par le modèle à partir de ce qu'expriment les documents.
             </p>
+            <CoverageNote coverage={result.coverage} />
           </div>
         </section>
 
@@ -212,6 +213,30 @@ export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult
                 </div>
               );
             })}
+          </section>
+        )}
+
+        {result.extra.length > 0 && (
+          <section aria-labelledby="extra-h" className="flex flex-col gap-3 rounded-2xl border border-line bg-white px-[34px] py-7">
+            <h2 id="extra-h" className="m-0 text-[22px] font-bold tracking-[-0.01em]">
+              Autres éléments des documents
+            </h2>
+            <p className="m-0 text-sm text-muted">
+              Informations présentes dans les documents mais non intégrées au parcours ci-dessus, reprises telles
+              qu'extraites.
+            </p>
+            <ul className="m-0 flex list-none flex-col gap-2 p-0">
+              {result.extra.map((e, i) => (
+                <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-hair pt-2 text-[15px] text-prose">
+                  <span className="flex-[999_1_420px]">{e.text}</span>
+                  {e.document && (
+                    <span className="text-xs text-muted">
+                      {e.document} {e.location}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
           </section>
         )}
 

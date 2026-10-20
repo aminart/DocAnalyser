@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { analysisApi } from './api';
-import { Analysis, QuoteCheck } from './types';
+import { Analysis, Coverage, QuoteCheck } from './types';
 
 /* ---------- Icônes (traits 24×24) ---------- */
 
@@ -361,4 +361,16 @@ export const QuoteNotice: React.FC<{ check: QuoteCheck }> = ({ check }) =>
     <span className="inline-flex w-fit items-center gap-1.5 rounded-md bg-[#FCE4E2] px-2 py-0.5 text-xs font-semibold text-[#9B2216]">
       Citation introuvable dans les documents : à vérifier
     </span>
+  ) : null;
+
+/** Indique qu'un corpus volumineux a été analysé par lots, et ce qu'il en reste hors thèmes. */
+export const CoverageNote: React.FC<{ coverage?: Coverage | null }> = ({ coverage }) =>
+  coverage ? (
+    <p className="m-0 text-xs leading-normal text-muted">
+      Corpus volumineux analysé en {coverage.batches} lots : {coverage.items} éléments extraits puis rédigés depuis les
+      passages d'origine.
+      {coverage.unassigned > 0 && ` ${coverage.unassigned} éléments sans thème dédié sont regroupés dans « Autres points ».`}
+      {coverage.recovered > 0 &&
+        ` ${coverage.recovered} éléments que la rédaction n'avait pas repris ont été rajoutés tels qu'extraits.`}
+    </p>
   ) : null;

@@ -39,9 +39,11 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_CA_BUNDLE: Optional[str] = None
     GEMINI_TEST_MODELS: str = ""
+    GEMINI_CONTEXT_TOKENS: int = 1_000_000
     ANTHROPIC_API_KEY: str = ""
     ANTHROPIC_CA_BUNDLE: Optional[str] = None
     ANTHROPIC_TEST_MODELS: str = ""
+    ANTHROPIC_CONTEXT_TOKENS: int = 200_000
 
     # Paramètres généraux
     STORAGE_DIR: Path = Path("/tmp/doc_intel_storage")

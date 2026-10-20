@@ -69,6 +69,14 @@ export interface SourceCount {
   citations: number;
 }
 
+/** Présent quand le corpus dépassait la fenêtre du modèle et a été analysé par lots. */
+export interface Coverage {
+  batches: number;
+  items: number;
+  unassigned: number;
+  recovered: number; // éléments non repris par la rédaction, rajoutés tels qu'extraits
+}
+
 export interface ThemesResult {
   kind: 'themes';
   title: string;
@@ -77,6 +85,7 @@ export interface ThemesResult {
   actions: ActionItem[];
   sources: SourceCount[];
   stats: { themes: number; points: number; quotes: number; quotes_exact: number; actions: number };
+  coverage?: Coverage | null;
 }
 
 export interface JourneyPhase {
@@ -127,7 +136,9 @@ export interface JourneyResult {
   phases: JourneyPhase[];
   flow: FlowGraph;
   priorities: Priority[];
+  extra: { text: string; document: string; location: string }[];
   sources: SourceCount[];
+  coverage?: Coverage | null;
 }
 
 export interface Analysis {
