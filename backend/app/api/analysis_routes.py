@@ -8,10 +8,9 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.services import analysis_service as svc
-from app.services.export_service import SynthesisExportService
+from app.services.export_service import markdown_to_docx, markdown_to_pdf
 
 router = APIRouter(prefix="/api/v2", tags=["Analyse documentaire"])
-exporter = SynthesisExportService()
 
 
 class AnalysisCreate(BaseModel):
@@ -102,10 +101,10 @@ async def export_analysis(analysis_id: str, format: Literal["md", "docx", "pdf"]
     if format == "md":
         content, media = analysis.markdown.encode("utf-8"), "text/markdown; charset=utf-8"
     elif format == "docx":
-        content = exporter._markdown_to_docx(title, _plain(analysis.markdown))
+        content = markdown_to_docx(title, _plain(analysis.markdown))
         media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     else:
-        content, media = exporter._markdown_to_pdf(title, _plain(analysis.markdown)), "application/pdf"
+        content, media = markdown_to_pdf(title, _plain(analysis.markdown)), "application/pdf"
     return Response(
         content=content,
         media_type=media,

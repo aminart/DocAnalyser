@@ -1,62 +1,63 @@
-# DocIntel Studio — Plateforme d'Analyse Documentaire Multi-Formats & Multi-Modes
+# Analyse documentaire
 
-Application complète d'ingestion documentaire haute volumétrie et de synthèse intelligente sourcée en **4 modes métiers** (Synthèse Globale, Transcription, Parcours Utilisateurs, Notes en Vrac).
+Importez vos documents, choisissez comment les lire, et laissez un modèle de langage en dégager les grands thèmes.
 
-## 1. Démarrage Rapide
+Quatre modes d'analyse : **Synthèse globale**, **Synthèse de transcription**, **Synthèse de notes en vrac** et **Flux et parcours utilisateurs**, chacun en trois niveaux de détail (synthétique, détaillé, très détaillé).
 
-### A. Backend (FastAPI + Parsing Multi-Formats + Client Mistral `.env`)
+Écrans : Configuration → Analyse en cours (progression et thèmes en direct) → Synthèse par thèmes, ou carte du parcours pour le mode Flux. Les synthèses s'exportent en Markdown, Word ou PDF.
+
+## 1. Démarrage
+
+```bash
+./start.sh
+```
+
+Le script lance le backend sur http://localhost:8000 puis le frontend sur **http://localhost:5173**. Ctrl+C arrête les deux.
+
+### Première installation
 
 ```bash
 cd backend
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Copier et configurer le fichier .env (API KEY, API Base et CA Bundle)
 cp .env.example .env
-
-# Lancer le serveur FastAPI sur http://localhost:8000
-uvicorn app.main:app --reload --port 8000
 ```
-
-### B. Frontend (React + Vite + TypeScript + Tailwind CSS + Material Icons)
 
 ```bash
 cd frontend
 npm install
-npm run dev
 ```
 
-Ouvrez ensuite **http://localhost:5173** dans votre navigateur.
+## 2. Configuration des modèles (`backend/.env`)
 
----
+Les modèles proposés dans l'application sont **exactement ceux listés dans `backend/.env`**, dans le même ordre (modèle : `backend/.env.example`).
 
-## 2. Configuration LLM Locale / Entreprise (`backend/.env`)
+**Fournisseurs compatibles OpenAI** (vLLM, Ollama, Azure OpenAI, passerelle interne…), deux au plus : `CUSTOM_LLM_*` et `CUSTOM_LLM_2_*`.
 
 ```ini
-MISTRAL_API_KEY="votre_cle_api_mistral_ou_interne"
-MISTRAL_API_BASE="https://api.mistral.ai/v1"
-MISTRAL_CA_BUNDLE="/chemin/vers/entreprise-ca-bundle.crt"
-MISTRAL_AVAILABLE_MODELS="mistral-medium-latest,mistral-small-latest,mistral-large-latest"
-MISTRAL_DEFAULT_MODEL="mistral-medium-latest"
+CUSTOM_LLM_PROVIDER_NAME="Passerelle interne"
+CUSTOM_LLM_API_KEY="..."            # facultative
+CUSTOM_LLM_API_BASE="https://votre-endpoint/v1"
+CUSTOM_LLM_CA_BUNDLE=""             # certificat d'entreprise (PEM), si nécessaire
+CUSTOM_LLM_AVAILABLE_MODELS="mistral-large-latest,qwen2.5-32b"
+CUSTOM_LLM_CONTEXT_TOKENS=128000
 ```
 
-- Si `MISTRAL_CA_BUNDLE` est renseigné, toutes les requêtes `httpx.AsyncClient` vers votre endpoint LLM utilisent ce certificat d'autorité racine TLS.
-- Si vous souhaitez tester l'interface, le découpage par chunks, la traçabilité par page/slide/ligne et les exports (`PDF`, `DOCX`, `Markdown`) avant d'avoir renseigné votre clé API Mistral, laissez `ENABLE_FALLBACK_SIMULATION=true` dans `.env`.
+Un modèle n'est sélectionnable que si l'`API_BASE` de son fournisseur est renseignée.
 
----
+**Clés de test** : renseignez `GEMINI_API_KEY` et/ou `ANTHROPIC_API_KEY`. Le fournisseur apparaît alors avec les modèles de `GEMINI_TEST_MODELS` / `ANTHROPIC_TEST_MODELS` ; sans clé, il reste masqué.
 
-## 3. Interface « Analyse documentaire » (API v2)
+En cas de quota dépassé ou de surcharge, l'analyse bascule automatiquement sur un autre modèle du même fournisseur.
 
-L'interface (écrans Configuration → Analyse en cours → Synthèse par thèmes / Flux et parcours) s'appuie sur `/api/v2` :
+Redémarrez le backend après toute modification du `.env`. Ne versionnez jamais `backend/.env` (il est exclu par `.gitignore`).
 
-- `POST /api/v2/documents` : import et lecture d'un fichier (pages, lignes…)
-- `GET /api/v2/models` : modèles déclarés dans `backend/.env` (`CUSTOM_LLM_AVAILABLE_MODELS`, `CUSTOM_LLM_2_AVAILABLE_MODELS`)
+## 3. API
+
+- `GET /api/v2/models` : modèles déclarés et leur disponibilité
+- `POST /api/v2/documents` : import et lecture d'un fichier (PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT)
 - `POST /api/v2/analyses` puis `GET /api/v2/analyses/{id}` : analyse en 5 étapes avec aperçu des thèmes en direct
+- `DELETE /api/v2/analyses/{id}` : annulation
 - `GET /api/v2/analyses/{id}/export?format=md|docx|pdf`
 
-Les modèles proposés dans l'application sont exactement ceux listés dans `backend/.env` (modèle : `backend/.env.example`), pour deux fournisseurs compatibles OpenAI au plus : `CUSTOM_LLM_*` et `CUSTOM_LLM_2_*` (nom affiché, adresse `API_BASE`, clé facultative, certificat `CA_BUNDLE`, fenêtre de contexte). Un modèle n'est sélectionnable que si l'`API_BASE` de son fournisseur est renseignée. En cas de quota dépassé ou de surcharge, l'analyse bascule automatiquement sur un autre modèle du même fournisseur. Redémarrez le backend après toute modification du `.env`.
-
-**Clés de test (Gemini, Claude)** : renseignez `GEMINI_API_KEY` et/ou `ANTHROPIC_API_KEY` dans `backend/.env`. Le fournisseur apparaît alors dans l'application avec les modèles listés dans `GEMINI_TEST_MODELS` / `ANTHROPIC_TEST_MODELS`. Sans clé, il reste masqué.
-
-Les analyses sont conservées en mémoire : un redémarrage du backend les efface.
+Les documents et analyses sont conservés en mémoire : un redémarrage du backend les efface.

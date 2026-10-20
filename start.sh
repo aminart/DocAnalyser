@@ -2,7 +2,7 @@
 
 # Gestion de l'arrêt propre avec Ctrl+C
 cleanup() {
-    echo -e "\nArrêt de DocIntel Studio..."
+    echo -e "\nArrêt de l'application..."
     if [ -n "$BACKEND_PID" ]; then
         kill "$BACKEND_PID" 2>/dev/null
     fi
@@ -10,7 +10,7 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
-echo "🚀 Lancement de DocIntel Studio..."
+echo "🚀 Lancement de l'application Analyse documentaire..."
 
 # 1. Vérifier / Lancer le backend
 if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null 2>&1; then
