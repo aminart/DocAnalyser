@@ -1,0 +1,324 @@
+import React, { useState } from 'react';
+import { LEVELS } from './ConfigScreen';
+import { Analysis, AnalysisLevel, ThemesResult } from './types';
+import {
+  Disclaimer,
+  Emphasis,
+  FileBadge,
+  Icons,
+  ReportBanner,
+  docCountLabel,
+  extOf,
+  modelLabel,
+  shortDocName,
+  themeColor,
+} from './ui';
+
+const ACTIONS_LABEL: Record<string, string> = {
+  global: "Pistes d'action",
+  transcript: 'Décisions et prochaines étapes',
+  notes: 'Prochaines étapes',
+};
+
+const scrollTo = (id: string) => (e: React.MouseEvent) => {
+  e.preventDefault();
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+};
+
+export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; onNewAnalysis: () => void }> = ({
+  analysis,
+  result,
+  onNewAnalysis,
+}) => {
+  const [level, setLevel] = useState<AnalysisLevel>(analysis.level);
+  const [closed, setClosed] = useState<number[]>([]);
+  const nDocs = analysis.documents.length;
+  const showBody = level !== 'synth';
+  const showSources = level !== 'synth' && analysis.cite;
+  const showNuance = level === 'deep';
+  const actionsLabel = ACTIONS_LABEL[analysis.mode] ?? ACTIONS_LABEL.global;
+
+  const themes = result.themes.map((t, i) => ({
+    ...t,
+    ...themeColor(i),
+    num: i + 1,
+    anchor: `theme-${i + 1}`,
+    presence: `Présent dans ${t.documents.length}/${nDocs} document${nDocs > 1 ? 's' : ''}`,
+    open: !closed.includes(i),
+  }));
+
+  const stats = [
+    [result.stats.themes, 'grands thèmes'],
+    [result.stats.points, 'points clés'],
+    [result.stats.quotes, 'verbatims retenus'],
+    [result.stats.actions, actionsLabel.toLowerCase()],
+  ] as const;
+
+  return (
+    <>
+      <ReportBanner
+        analysis={analysis}
+        onNewAnalysis={onNewAnalysis}
+        showCopy
+        chips={[analysis.mode_label, docCountLabel(nDocs), modelLabel(analysis)]}
+        aside={
+          <div role="group" aria-label="Niveau d'affichage" className="ml-auto flex gap-0.5 rounded-[10px] bg-chip p-[3px]">
+            {LEVELS.map((l) => {
+              const on = l.id === level;
+              return (
+                <button
+                  key={l.id}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setLevel(l.id)}
+                  className={`min-h-9 rounded-lg border-none px-3.5 text-sm font-semibold ${
+                    on ? 'bg-white text-ink shadow-[0_1px_2px_rgba(20,23,31,0.12)]' : 'bg-transparent text-body'
+                  }`}
+                >
+                  {l.title}
+                </button>
+              );
+            })}
+          </div>
+        }
+      />
+
+      <div className="mx-auto box-border flex max-w-[1280px] flex-wrap items-start gap-10 px-8 pb-24 pt-8">
+        {/* Sommaire */}
+        <aside
+          aria-label="Sommaire"
+          className="flex min-w-0 max-w-[300px] flex-[1_1_240px] flex-col gap-6 lg:sticky lg:top-6"
+        >
+          <nav className="flex flex-col gap-1">
+            <span className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.08em] text-body">Sommaire</span>
+            <a href="#bref" onClick={scrollTo('bref')} className="flex items-center gap-2.5 rounded-lg px-3 py-[9px] font-semibold text-ink no-underline hover:bg-white">
+              En bref
+            </a>
+            {themes.map((t) => (
+              <a
+                key={t.anchor}
+                href={`#${t.anchor}`}
+                onClick={scrollTo(t.anchor)}
+                className="flex items-center gap-2.5 rounded-lg px-3 py-[9px] text-ink no-underline hover:bg-white"
+              >
+                <span
+                  className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-xs font-bold"
+                  style={{ background: t.soft, color: t.ink }}
+                >
+                  {t.num}
+                </span>
+                <span className="flex-grow font-medium leading-[1.3]">{t.title}</span>
+                <span className="text-xs text-muted">{t.points.length}</span>
+              </a>
+            ))}
+            {result.actions.length > 0 && (
+              <a href="#actions" onClick={scrollTo('actions')} className="flex items-center gap-2.5 rounded-lg px-3 py-[9px] font-semibold text-ink no-underline hover:bg-white">
+                {actionsLabel}
+              </a>
+            )}
+          </nav>
+          <div className="flex flex-col gap-2.5 border-t border-line pt-5">
+            <span className="px-3 text-xs font-semibold uppercase tracking-[0.08em] text-body">Sources</span>
+            {result.sources.map((s) => (
+              <div key={s.document} className="flex items-center gap-2.5 px-3 text-[13px]" title={s.document}>
+                <FileBadge ext={extOf(s.document)} size="sm" />
+                <span className="min-w-0 flex-grow truncate">{s.document}</span>
+                {analysis.cite && <span className="text-muted">{s.citations} cit.</span>}
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        {/* Contenu */}
+        <main className="flex min-w-0 max-w-[820px] flex-[999_1_620px] flex-col gap-7">
+          <section
+            id="bref"
+            aria-labelledby="bref-h"
+            className="flex scroll-mt-6 flex-col gap-[22px] rounded-2xl bg-ink px-9 py-8 text-white"
+          >
+            <h2 id="bref-h" className="m-0 text-[13px] font-semibold uppercase tracking-[0.1em] text-[#C9CDF5]">
+              En bref
+            </h2>
+            <p className="m-0 font-serif text-2xl font-normal leading-[1.45]">
+              <Emphasis text={result.brief} />
+            </p>
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
+              {stats.map(([value, label]) => (
+                <div key={label} className="rounded-xl border border-[#343845] px-4 py-3.5">
+                  <div className="text-[26px] font-bold">{value}</div>
+                  <div className="text-[13px] text-[#C2C6D0]">{label}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Carte des thèmes */}
+          <section aria-label="Vue d'ensemble des thèmes" className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+            {themes.map((t) => (
+              <a
+                key={t.anchor}
+                href={`#${t.anchor}`}
+                onClick={scrollTo(t.anchor)}
+                className="flex flex-col gap-2.5 rounded-[14px] border border-line bg-white p-[18px] text-ink no-underline transition hover:border-line-strong"
+              >
+                <span className="flex items-center justify-between">
+                  <span
+                    className="flex h-7 w-7 items-center justify-center rounded-lg font-bold"
+                    style={{ background: t.soft, color: t.ink }}
+                  >
+                    {t.num}
+                  </span>
+                  <span className="text-xs text-muted">{t.presence}</span>
+                </span>
+                <span className="text-[15px] font-bold leading-[1.3]">{t.title}</span>
+                <span className="flex gap-[3px]" aria-label={`Présent dans ${t.documents.length} documents sur ${nDocs}`}>
+                  {analysis.documents.map((d, k) => (
+                    <span
+                      key={d.id}
+                      className="h-[5px] flex-grow rounded-[3px]"
+                      style={{ background: k < t.documents.length ? t.ink : 'var(--ad-line)' }}
+                    />
+                  ))}
+                </span>
+              </a>
+            ))}
+          </section>
+
+          {/* Thèmes */}
+          {themes.map((t, i) => (
+            <section
+              key={t.anchor}
+              id={t.anchor}
+              aria-labelledby={`${t.anchor}-h`}
+              className="scroll-mt-6 overflow-hidden rounded-2xl border border-line bg-white"
+            >
+              <div className="h-1" style={{ background: t.ink }} />
+              <div className="flex items-start gap-4 px-9 pb-2 pt-7">
+                <span
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] text-lg font-bold"
+                  style={{ background: t.soft, color: t.ink }}
+                >
+                  {t.num}
+                </span>
+                <div className="flex min-w-0 flex-grow flex-col gap-1">
+                  <h2 id={`${t.anchor}-h`} className="m-0 text-2xl font-bold leading-[1.25] tracking-[-0.01em]">
+                    {t.title}
+                  </h2>
+                  <span className="text-[13px] text-muted">
+                    {t.presence} · {t.points.length} points clés
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setClosed(t.open ? [...closed, i] : closed.filter((x) => x !== i))}
+                  aria-expanded={t.open}
+                  aria-label={t.open ? 'Réduire le thème' : 'Déplier le thème'}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-line bg-white text-chip-ink hover:bg-page"
+                >
+                  <Icons.chevron
+                    size={18}
+                    style={{ transform: `rotate(${t.open ? 180 : 0}deg)`, transition: 'transform 0.2s' }}
+                  />
+                </button>
+              </div>
+
+              {t.open && (
+                <div className="flex flex-col gap-6 px-9 pb-8 pt-2 sm:pl-[92px]">
+                  <p className="m-0 font-serif text-[19px] leading-[1.6] text-[#22252D]">{t.summary}</p>
+
+                  <ul className="m-0 flex list-none flex-col gap-4 p-0">
+                    {t.points.map((p, k) => (
+                      <li key={k} className="flex gap-3.5">
+                        <span className="mt-[9px] h-[7px] w-[7px] shrink-0 rounded-full" style={{ background: t.ink }} />
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-base font-bold leading-[1.4]">{p.lead}</span>
+                          {showBody && p.body && (
+                            <span className="font-serif text-[17px] leading-[1.6] text-prose">{p.body}</span>
+                          )}
+                          {showSources && p.sources.length > 0 && (
+                            <span className="flex flex-wrap gap-1.5">
+                              {p.sources.map((s, j) => (
+                                <span
+                                  key={j}
+                                  title={`${s.document} — ${s.location}`}
+                                  className="inline-flex items-center gap-[5px] rounded-md border border-line bg-page px-2 py-0.5 text-xs text-chip-ink"
+                                >
+                                  <Icons.file size={12} />
+                                  {[shortDocName(s.document), s.location].filter(Boolean).join(' ')}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {showBody && t.quote && (
+                    <figure className="m-0 flex flex-col gap-2.5 rounded-xl px-[26px] py-[22px]" style={{ background: t.soft }}>
+                      <blockquote className="m-0 font-serif text-[21px] italic leading-normal text-ink">
+                        « {t.quote} »
+                      </blockquote>
+                      {t.quote_by && (
+                        <figcaption className="text-[13px] font-semibold" style={{ color: t.ink }}>
+                          {t.quote_by}
+                        </figcaption>
+                      )}
+                    </figure>
+                  )}
+
+                  {showNuance && t.nuance && (
+                    <div className="flex gap-3 rounded-xl border border-dashed border-[#C3C9D6] px-[18px] py-4">
+                      <Icons.nuance size={20} className="mt-0.5 shrink-0 text-chip-ink" />
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[13px] font-bold text-chip-ink">Nuance / point de divergence</span>
+                        <span className="text-[15px] leading-[1.55] text-prose">{t.nuance}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          ))}
+
+          {/* Pistes d'action */}
+          {result.actions.length > 0 && (
+            <section
+              id="actions"
+              aria-labelledby="actions-h"
+              className="flex scroll-mt-6 flex-col gap-[18px] rounded-2xl border border-line bg-white px-9 py-7"
+            >
+              <h2 id="actions-h" className="m-0 text-2xl font-bold tracking-[-0.01em]">
+                {actionsLabel}
+              </h2>
+              <ol className="m-0 flex list-none flex-col p-0">
+                {result.actions.map((a, i) => {
+                  const c = a.theme ? themeColor(a.theme - 1) : null;
+                  return (
+                    <li key={i} className="flex items-start gap-4 border-t border-hair py-4">
+                      <span className="w-7 shrink-0 font-serif text-[28px] leading-none text-[#9AA1B0]">{i + 1}</span>
+                      <div className="flex flex-grow flex-col gap-1.5">
+                        <span className="text-base font-bold">{a.title}</span>
+                        <span className="text-[15px] leading-[1.55] text-body">{a.body}</span>
+                      </div>
+                      {c && (
+                        <span
+                          className="whitespace-nowrap rounded-full px-2.5 py-[3px] text-xs font-semibold"
+                          style={{ background: c.soft, color: c.ink }}
+                        >
+                          Thème {a.theme}
+                        </span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          )}
+
+          <Disclaimer />
+        </main>
+      </div>
+    </>
+  );
+};

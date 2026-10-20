@@ -1,0 +1,966 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DocIntel Studio — Analyse Documentaire Multi-Formats & Multi-Modes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
+    />
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+    <style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        user-select: none;
+        vertical-align: middle;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useCallback, useRef } = React;
+
+      if (window.mermaid) {
+        window.mermaid.initialize({
+          startOnLoad: false,
+          theme: 'base',
+          securityLevel: 'loose',
+          themeVariables: {
+            primaryColor: '#eef2ff',
+            primaryTextColor: '#1e1b4b',
+            primaryBorderColor: '#6366f1',
+            lineColor: '#4f46e5',
+          },
+        });
+      }
+
+      const API_BASE = '/api/v1';
+      const DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
+
+      const SAMPLE_TEMPLATES = [
+        {
+          name: 'Rapport_Strategique_Q4_2026.md',
+          label: 'Exemple : Rapport Stratégique & Financier',
+          icon: 'analytics',
+          content: `# Rapport Stratégique & Performance Financière 2026\n\n## 1. Bilan Exécutif et Croissance\nLe chiffre d'affaires consolidé atteint 48,6 M€ au quatrième trimestre, soit une croissance annuelle de 24% portée par l'adoption massive de notre plateforme SaaS Enterprise. La marge d'EBITDA progresse à 31% grâce à l'automatisation du pipeline d'ingestion documentaire.\n\n## 2. Indicateurs Opérationnels & Satisfaction Client\nLe taux de rétention net (NRR) s'établit à 118% sur le segment Grands Comptes. Le temps moyen de traitement des appels d'offres complexes (rapports PDF de 350 pages) a été réduit de 14 heures à 6 minutes par dossier.\n\n## 3. Recommandations Stratégiques 2027\n- Priorité Haute : Déployer l'infrastructure LLM hybride (Mistral Medium & Small) avec support des certificats PKI internes pour les banques et assurances.\n- Priorité Haute : Généraliser le connecteur de classeurs Excel multi-feuilles pour les audits financiers.\n- Priorité Moyenne : Étendre l'analyse automatique des réunions VTT/SRT à l'ensemble des équipes Customer Success.`,
+        },
+        {
+          name: 'Comite_Produit_Transcription.vtt',
+          label: 'Exemple : Transcription Réunion (.vtt)',
+          icon: 'record_voice_over',
+          content: `WEBVTT\n\n00:01:10.000 --> 00:02:45.000\nClaire (VP Product): Bonjour à tous. L'objectif de ce comité est de trancher l'architecture d'upload grand volume et la feuille de route Q1. Marc, où en sommes-nous sur les fichiers PDF de plus de 300 pages ?\n\n00:02:46.000 --> 00:05:12.000\nMarc (Principal Architect): Nous avons validé le découpage par chunks de 5 Mo côté navigateur et le parsing en streaming via PyMuPDF et OpenPyXL en mode read_only. Décision actée : nous utilisons mistral-medium-latest par défaut avec fallback sur mistral-small-latest pour les notes rapides.\n\n00:05:15.000 --> 00:08:30.000\nSophie (Lead UX): Sur le parcours utilisateur, nos tests montrent un point de friction majeur lorsque l'utilisateur ne sait pas d'où vient un chiffre. Il faut absolument que chaque carte affiche un badge cliquable pointant vers la page ou la slide exacte. Marc prend l'action de livrer l'API d'ancrage d'ici vendredi prochain.\n\n00:08:35.000 --> 00:11:00.000\nThomas (SecOps): Attention toutefois, une question reste en suspens concernant l'hébergement du certificat CA Bundle pour les clients bancaires on-premise : devons-nous supporter le rechargement à chaud sans redémarrer les workers Celery ?`,
+        },
+      ];
+
+      const MODES_META = [
+        {
+          id: 'global_summary',
+          title: 'Mode 1 — Synthèse Documentaire Globale',
+          subtitle: 'Rapports stratégiques, études, PDF longs & classeurs financiers',
+          icon: 'analytics',
+          highlights: [
+            'Résumé exécutif structuré',
+            'Thématiques clés & arguments',
+            'Chiffres & KPIs extraits',
+            'Recommandations priorisées',
+          ],
+        },
+        {
+          id: 'transcript_summary',
+          title: 'Mode 2 — Synthèse de Transcription',
+          subtitle: 'Réunions, entretiens, fichiers VTT / SRT ou exports audio-to-text',
+          icon: 'record_voice_over',
+          highlights: [
+            'Contexte, participants & agenda',
+            'Clustering thématique',
+            'Décisions actées (Decisions made)',
+            'Plan d’action (Qui, Quoi, Quand) & Tensions',
+          ],
+        },
+        {
+          id: 'user_journey',
+          title: 'Mode 3 — Extraction des Parcours Utilisateurs',
+          subtitle: 'Ateliers UX, spécifications produit & processus métiers',
+          icon: 'route',
+          highlights: [
+            'Personas & profils cibles',
+            'Étapes chronologiques (Step-by-step)',
+            'Objectifs, Pain points & Opportunités',
+            'Diagramme de flux Mermaid interactif',
+          ],
+        },
+        {
+          id: 'raw_notes',
+          title: 'Mode 4 — Synthèse de Notes en Vrac',
+          subtitle: 'Brainstorming, notes de terrain & prises de notes disparates',
+          icon: 'lightbulb',
+          highlights: [
+            'Dé-duplication et fusion des idées',
+            'Catégorisation par piliers & tags',
+            'Mise en forme propre et lisible',
+            'Prochaines étapes suggérées',
+          ],
+        },
+      ];
+
+      const SourceBadges = ({ sources, onSelectSource }) => {
+        if (!sources || sources.length === 0) return null;
+        return (
+          <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {sources.map((src, idx) => (
+              <button
+                key={`${src.file_name}-${src.location}-${idx}`}
+                type="button"
+                onClick={() => onSelectSource(src)}
+                className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50/70 px-2 py-0.5 text-xs font-medium text-indigo-700 transition hover:border-indigo-400 hover:bg-indigo-100"
+                title={`Voir l'extrait source : "${src.excerpt}"`}
+              >
+                <span className="material-symbols-outlined text-[14px]">menu_book</span>
+                <span className="max-w-[160px] truncate">{src.file_name}</span>
+                <span className="text-indigo-400">•</span>
+                <span className="font-semibold">{src.location}</span>
+              </button>
+            ))}
+          </div>
+        );
+      };
+
+      const MermaidViewer = ({ chart }) => {
+        const [svgContent, setSvgContent] = useState('');
+        const [showRaw, setShowRaw] = useState(false);
+
+        useEffect(() => {
+          let active = true;
+          if (chart && window.mermaid) {
+            const id = 'mermaid-' + Math.random().toString(36).substring(2, 9);
+            window.mermaid
+              .render(id, chart)
+              .then(({ svg }) => {
+                if (active) setSvgContent(svg);
+              })
+              .catch(() => {
+                if (active) setShowRaw(true);
+              });
+          }
+          return () => {
+            active = false;
+          };
+        }, [chart]);
+
+        return (
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-indigo-600">account_tree</span>
+                <h3 className="font-bold text-slate-900">Diagramme de Flux Mermaid</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowRaw(!showRaw)}
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                {showRaw ? 'Voir le diagramme' : 'Voir le code Mermaid'}
+              </button>
+            </div>
+            {showRaw || !svgContent ? (
+              <pre className="mt-4 overflow-x-auto rounded-xl bg-slate-900 p-4 font-mono text-xs text-slate-100">
+                {chart}
+              </pre>
+            ) : (
+              <div
+                className="mt-4 flex justify-center overflow-x-auto rounded-xl bg-slate-50/70 p-6"
+                dangerouslySetInnerHTML={{ __html: svgContent }}
+              />
+            )}
+          </div>
+        );
+      };
+
+      const App = () => {
+        const [step, setStep] = useState(1);
+        const [filesState, setFilesState] = useState([]);
+        const [availableModels, setAvailableModels] = useState([]);
+        const [selectedMode, setSelectedMode] = useState('global_summary');
+        const [selectedModel, setSelectedModel] = useState('mistral-medium-latest');
+        const [job, setJob] = useState(null);
+        const [globalError, setGlobalError] = useState(null);
+        const [activeSource, setActiveSource] = useState(null);
+        const [fullBlockContent, setFullBlockContent] = useState(null);
+
+        useEffect(() => {
+          fetch(`${API_BASE}/models`)
+            .then((r) => r.json())
+            .then((models) => {
+              setAvailableModels(models);
+              if (models.length > 0) setSelectedModel(models[0].id);
+            })
+            .catch(() => {});
+        }, []);
+
+        const uploadLargeFile = async (file, onProgress) => {
+          const totalChunks = Math.max(1, Math.ceil(file.size / DEFAULT_CHUNK_SIZE));
+          const initRes = await fetch(`${API_BASE}/uploads/init`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              file_name: file.name,
+              mime_type: file.type || 'application/octet-stream',
+              total_size_bytes: file.size,
+              total_chunks: totalChunks,
+            }),
+          });
+          if (!initRes.ok) throw new Error('Erreur initialisation upload');
+          const { document_id, chunk_size_bytes } = await initRes.json();
+          let lastMeta = null;
+
+          for (let i = 0; i < totalChunks; i++) {
+            const start = i * chunk_size_bytes;
+            const end = Math.min(file.size, start + chunk_size_bytes);
+            const formData = new FormData();
+            formData.append('chunk_index', String(i));
+            formData.append('chunk', file.slice(start, end), file.name);
+            const chunkRes = await fetch(`${API_BASE}/uploads/${document_id}/chunk`, {
+              method: 'POST',
+              body: formData,
+            });
+            if (!chunkRes.ok) throw new Error('Erreur chunk upload');
+            lastMeta = await chunkRes.json();
+            onProgress(Math.round((end / file.size) * 100));
+          }
+          return lastMeta;
+        };
+
+        const addFiles = async (incomingFiles) => {
+          setGlobalError(null);
+          const entries = incomingFiles.map((file) => ({
+            file,
+            progressPercent: 0,
+            status: 'uploading',
+          }));
+          setFilesState((prev) => [...prev, ...entries]);
+
+          await Promise.all(
+            incomingFiles.map(async (file) => {
+              try {
+                const meta = await uploadLargeFile(file, (pct) => {
+                  setFilesState((curr) =>
+                    curr.map((it) => (it.file === file ? { ...it, progressPercent: pct } : it))
+                  );
+                });
+                setFilesState((curr) =>
+                  curr.map((it) =>
+                    it.file === file
+                      ? { ...it, progressPercent: 100, status: 'done', metadata: meta }
+                      : it
+                  )
+                );
+              } catch (e) {
+                setFilesState((curr) =>
+                  curr.map((it) =>
+                    it.file === file ? { ...it, status: 'error', error: e.message } : it
+                  )
+                );
+              }
+            })
+          );
+        };
+
+        const handleLoadSample = (sample) => {
+          const blob = new Blob([sample.content], { type: 'text/plain;charset=utf-8' });
+          const file = new File([blob], sample.name, { type: 'text/plain' });
+          addFiles([file]);
+        };
+
+        const launchAnalysis = async () => {
+          const docIds = filesState
+            .filter((f) => f.status === 'done' && f.metadata)
+            .map((f) => f.metadata.document_id);
+          if (docIds.length === 0) return;
+
+          try {
+            const res = await fetch(`${API_BASE}/jobs`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                document_ids: docIds,
+                mode: selectedMode,
+                model_name: selectedModel,
+              }),
+            });
+            if (!res.ok) throw new Error('Impossible de lancer le job');
+            const created = await res.json();
+            setJob(created);
+            setActiveSource(null);
+            setFullBlockContent(null);
+            setStep(3);
+          } catch (e) {
+            setGlobalError(e.message);
+          }
+        };
+
+        useEffect(() => {
+          if (!job || job.stage === 'ready' || job.stage === 'failed') return;
+          const timer = setInterval(async () => {
+            const res = await fetch(`${API_BASE}/jobs/${job.job_id}`);
+            if (res.ok) {
+              const updated = await res.json();
+              setJob(updated);
+            }
+          }, 900);
+          return () => clearInterval(timer);
+        }, [job]);
+
+        const handleSelectSource = async (src) => {
+          setActiveSource(src);
+          setFullBlockContent(null);
+          if (!job) return;
+          const doc = job.documents.find((d) => d.file_name === src.file_name);
+          if (!doc) return;
+          try {
+            const res = await fetch(`${API_BASE}/documents/${doc.document_id}/blocks`);
+            if (res.ok) {
+              const data = await res.json();
+              const matched = data.blocks.find((b) => b.location === src.location);
+              if (matched) setFullBlockContent(matched.content);
+            }
+          } catch {}
+        };
+
+        const allUploadsReady =
+          filesState.length > 0 && filesState.every((f) => f.status === 'done');
+
+        return (
+          <div className="min-h-screen bg-slate-50 text-slate-900">
+            <header className="border-b border-slate-200 bg-white">
+              <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-sm">
+                    <span className="material-symbols-outlined">auto_awesome_mosaic</span>
+                  </div>
+                  <div>
+                    <span className="text-lg font-bold tracking-tight text-slate-900">
+                      DocIntel Studio
+                    </span>
+                    <p className="text-xs text-slate-500">
+                      Analyse documentaire multi-formats & synthèse sourcée
+                    </p>
+                  </div>
+                </div>
+                <nav className="hidden items-center gap-6 text-sm font-medium md:flex">
+                  {[
+                    { num: 1, label: '1. Ingestion Multi-Formats' },
+                    { num: 2, label: '2. Mode & Modèle LLM' },
+                    { num: 3, label: '3. Dashboard & Export' },
+                  ].map((s) => (
+                    <div
+                      key={s.num}
+                      className={`flex items-center gap-2 ${
+                        step === s.num ? 'font-bold text-indigo-600' : 'text-slate-400'
+                      }`}
+                    >
+                      <span
+                        className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
+                          step === s.num
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}
+                      >
+                        {s.num}
+                      </span>
+                      <span>{s.label}</span>
+                    </div>
+                  ))}
+                </nav>
+              </div>
+            </header>
+
+            <main className="mx-auto max-w-7xl px-6 py-8">
+              {globalError && (
+                <div className="mb-6 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+                  {globalError}
+                </div>
+              )}
+
+              {step === 1 && (
+                <div className="mx-auto max-w-4xl space-y-6">
+                  <div className="flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-slate-300 bg-white p-12 text-center hover:border-indigo-400">
+                    <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
+                      <span className="material-symbols-outlined text-4xl">cloud_upload</span>
+                    </div>
+                    <h2 className="mt-4 text-xl font-bold text-slate-900">
+                      Importez vos documents bureautiques ou transcriptions
+                    </h2>
+                    <p className="mt-1.5 max-w-xl text-sm text-slate-500">
+                      Prise en charge native des fichiers lourds (300+ pages PDF, classeurs Excel denses, présentations PowerPoint, VTT/SRT) par upload chunké de 5 Mo.
+                    </p>
+                    <label className="mt-6 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700">
+                      <span className="material-symbols-outlined text-lg">upload_file</span>
+                      <span>Sélectionner un ou plusieurs fichiers</span>
+                      <input
+                        type="file"
+                        multiple
+                        className="hidden"
+                        accept=".pdf,.docx,.doc,.pptx,.ppt,.xlsx,.xls,.csv,.vtt,.srt,.txt,.md"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            addFiles(Array.from(e.target.files));
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+                    <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                      <span className="material-symbols-outlined text-base text-indigo-600">
+                        science
+                      </span>
+                      Tester immédiatement avec un document d'exemple :
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {SAMPLE_TEMPLATES.map((s) => (
+                        <button
+                          key={s.name}
+                          onClick={() => handleLoadSample(s)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50/60 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                        >
+                          <span className="material-symbols-outlined text-sm">{s.icon}</span>
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {filesState.length > 0 && (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Fichiers importés ({filesState.length})
+                      </h3>
+                      <ul className="mt-4 divide-y divide-slate-100">
+                        {filesState.map((item, idx) => (
+                          <li key={idx} className="py-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <span className="material-symbols-outlined text-indigo-600">
+                                  description
+                                </span>
+                                <div>
+                                  <div className="text-sm font-semibold">{item.file.name}</div>
+                                  <div className="text-xs text-slate-500">
+                                    {(item.file.size / 1024).toFixed(1)} Ko •{' '}
+                                    {item.status === 'done'
+                                      ? 'Prêt pour analyse'
+                                      : `Upload : ${item.progressPercent}%`}
+                                  </div>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() =>
+                                  setFilesState((p) => p.filter((x) => x.file !== item.file))
+                                }
+                                className="text-slate-400 hover:text-rose-600"
+                              >
+                                <span className="material-symbols-outlined">delete</span>
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                      <div className="mt-6 flex justify-end">
+                        <button
+                          disabled={!allUploadsReady}
+                          onClick={() => setStep(2)}
+                          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:bg-slate-300"
+                        >
+                          <span>Étape 2 : Choisir le mode & le modèle Mistral</span>
+                          <span className="material-symbols-outlined text-base">arrow_forward</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {step === 2 && (
+                <div className="mx-auto max-w-5xl space-y-8">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    {MODES_META.map((m) => {
+                      const active = selectedMode === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => setSelectedMode(m.id)}
+                          className={`flex flex-col justify-between rounded-2xl border p-6 text-left transition ${
+                            active
+                              ? 'border-indigo-600 bg-indigo-50/40 ring-2 ring-indigo-600'
+                              : 'border-slate-200 bg-white hover:border-indigo-300'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center justify-between">
+                              <span className="material-symbols-outlined text-3xl text-indigo-600">
+                                {m.icon}
+                              </span>
+                              {active && (
+                                <span className="rounded-full bg-indigo-600 px-2.5 py-0.5 text-xs font-semibold text-white">
+                                  Sélectionné
+                                </span>
+                              )}
+                            </div>
+                            <h3 className="mt-3 font-bold text-slate-900">{m.title}</h3>
+                            <p className="mt-1 text-xs text-slate-500">{m.subtitle}</p>
+                          </div>
+                          <ul className="mt-4 space-y-1 border-t border-slate-100 pt-3">
+                            {m.highlights.map((h) => (
+                              <li key={h} className="text-xs text-slate-700">
+                                • {h}
+                              </li>
+                            ))}
+                          </ul>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                    <h3 className="font-bold text-slate-900">
+                      Choix du Modèle LLM Multi-API (Configuré dans backend/.env : Google Gemini, Mistral AI, Custom)
+                    </h3>
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      {availableModels.map((model) => {
+                        const isGemini = model.provider === 'gemini';
+                        return (
+                          <label
+                            key={model.id}
+                            className={`flex cursor-pointer flex-col justify-between rounded-xl border p-4 ${
+                              selectedModel === model.id
+                                ? 'border-indigo-600 bg-indigo-50/40 ring-1 ring-indigo-600'
+                                : 'border-slate-200 hover:bg-slate-50'
+                            }`}
+                          >
+                            <div>
+                              <div className="mb-2 flex items-center justify-between">
+                                <span
+                                  className={`rounded-md px-2 py-0.5 text-[10px] font-bold uppercase ${
+                                    isGemini
+                                      ? 'bg-blue-100 text-blue-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {model.provider_label || (isGemini ? 'Google Gemini' : 'Mistral AI')}
+                                </span>
+                                <input
+                                  type="radio"
+                                  checked={selectedModel === model.id}
+                                  onChange={() => setSelectedModel(model.id)}
+                                />
+                              </div>
+                              <div className="text-sm font-bold text-slate-900">{model.label}</div>
+                              <p className="mt-1 text-xs text-slate-500">{model.description}</p>
+                            </div>
+                            <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[11px]">
+                              <span className="font-semibold text-indigo-600">
+                                {(model.context_window / 1000).toFixed(0)}k tokens
+                              </span>
+                              <span
+                                className={
+                                  model.api_key_configured
+                                    ? 'font-semibold text-emerald-600'
+                                    : 'text-slate-400'
+                                }
+                              >
+                                {model.api_key_configured ? 'Clé API active' : 'Mode Démo (.env)'}
+                              </span>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between">
+                    <button
+                      onClick={() => setStep(1)}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"
+                    >
+                      Retour
+                    </button>
+                    <button
+                      onClick={launchAnalysis}
+                      className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
+                    >
+                      <span className="material-symbols-outlined text-base">auto_awesome</span>
+                      Générer la synthèse sourcée
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {step === 3 && job && (
+                <div>
+                  {job.stage !== 'ready' && job.stage !== 'failed' ? (
+                    <div className="mx-auto max-w-2xl rounded-2xl border border-slate-200 bg-white p-10 shadow-sm">
+                      <h2 className="text-xl font-bold">
+                        {job.current_step_detail} ({job.progress_percent}%)
+                      </h2>
+                      <div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full bg-indigo-600 transition-all"
+                          style={{ width: `${job.progress_percent}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : job.result ? (
+                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+                      <div className="space-y-6 lg:col-span-8">
+                        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                          <div>
+                            <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                              Synthèse Sourcée • {job.model_name}
+                            </span>
+                            <h1 className="mt-1 text-2xl font-bold">{job.result.title}</h1>
+                          </div>
+                          <div className="flex gap-2">
+                            {['md', 'docx', 'pdf'].map((fmt) => (
+                              <a
+                                key={fmt}
+                                href={`${API_BASE}/jobs/${job.job_id}/export?format=${fmt}`}
+                                target="_blank"
+                                className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase text-slate-700 hover:bg-indigo-600 hover:text-white"
+                              >
+                                Export .{fmt}
+                              </a>
+                            ))}
+                          </div>
+                        </div>
+
+                        {job.result.mode === 'global_summary' && (
+                          <div className="space-y-6">
+                            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                              <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+                                <span className="material-symbols-outlined text-indigo-600">
+                                  summarize
+                                </span>
+                                Synthèse Exécutive Structurée
+                              </h2>
+                              <p className="mt-3 rounded-xl border-l-4 border-indigo-600 bg-indigo-50/40 p-4 text-sm font-medium leading-relaxed text-slate-800">
+                                {job.result.executive_summary}
+                              </p>
+
+                              {job.result.executive_paragraphs &&
+                                job.result.executive_paragraphs.length > 0 && (
+                                  <div className="mt-6 space-y-5 divide-y divide-slate-100">
+                                    {job.result.executive_paragraphs.map((para, idx) => (
+                                      <article key={idx} className={idx > 0 ? 'pt-5' : ''}>
+                                        <h3 className="text-base font-bold tracking-tight text-slate-900">
+                                          {para.heading}
+                                        </h3>
+                                        <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">
+                                          {para.body}
+                                        </p>
+                                        <SourceBadges
+                                          sources={para.sources}
+                                          onSelectSource={handleSelectSource}
+                                        />
+                                      </article>
+                                    ))}
+                                  </div>
+                                )}
+                            </section>
+
+                            <section className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              {job.result.key_metrics.map((m, i) => (
+                                <div
+                                  key={i}
+                                  className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                                >
+                                  <div className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                                    {m.label}
+                                  </div>
+                                  <div className="mt-1.5 text-2xl font-extrabold text-indigo-600">
+                                    {m.value}
+                                  </div>
+                                  <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+                                    {m.context}
+                                  </p>
+                                  <SourceBadges
+                                    sources={m.sources}
+                                    onSelectSource={handleSelectSource}
+                                  />
+                                </div>
+                              ))}
+                            </section>
+
+                            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                              <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+                                <span className="material-symbols-outlined text-indigo-600">
+                                  category
+                                </span>
+                                Analyse Détaillée par Thématiques
+                              </h2>
+                              <div className="mt-4 space-y-5">
+                                {job.result.key_themes.map((t, i) => (
+                                  <div
+                                    key={i}
+                                    className="rounded-xl border border-slate-100 bg-slate-50/70 p-5"
+                                  >
+                                    <h3 className="text-base font-bold text-slate-900">
+                                      {t.theme}
+                                    </h3>
+                                    <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">
+                                      {t.summary}
+                                    </p>
+                                    {t.arguments && t.arguments.length > 0 && (
+                                      <ul className="mt-3 space-y-1.5 border-t border-slate-200/70 pt-3 text-sm text-slate-700">
+                                        {t.arguments.map((arg, idx) => (
+                                          <li key={idx} className="flex items-start gap-2">
+                                            <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-600" />
+                                            <span>{arg}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                    <SourceBadges
+                                      sources={t.sources}
+                                      onSelectSource={handleSelectSource}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </section>
+
+                            {job.result.recommendations &&
+                              job.result.recommendations.length > 0 && (
+                                <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                                  <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+                                    <span className="material-symbols-outlined text-indigo-600">
+                                      lightbulb
+                                    </span>
+                                    Recommandations & Conclusions Opérationnelles
+                                  </h2>
+                                  <div className="mt-4 space-y-4">
+                                    {job.result.recommendations.map((rec, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="rounded-xl border border-slate-200 p-4"
+                                      >
+                                        <div className="flex items-center justify-between gap-2">
+                                          <h3 className="font-bold text-slate-900">{rec.title}</h3>
+                                          <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                                            Priorité {rec.priority}
+                                          </span>
+                                        </div>
+                                        <p className="mt-2 text-sm leading-relaxed text-slate-700">
+                                          {rec.description}
+                                        </p>
+                                        <SourceBadges
+                                          sources={rec.sources}
+                                          onSelectSource={handleSelectSource}
+                                        />
+                                      </div>
+                                    ))}
+                                  </div>
+                                </section>
+                              )}
+                          </div>
+                        )}
+
+                        {job.result.mode === 'transcript_summary' && (
+                          <div className="space-y-6">
+                            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                              <h2 className="text-lg font-bold">Contexte & Dynamique de Session</h2>
+                              <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">
+                                {job.result.context}
+                              </p>
+                              <div className="mt-4 flex flex-wrap gap-2">
+                                {job.result.participants.map((p, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-800"
+                                  >
+                                    <strong>{p.name}</strong> ({p.role})
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                              <h2 className="text-lg font-bold">Synthèse Structurée par Sujets</h2>
+                              <div className="mt-4 space-y-4">
+                                {job.result.thematic_clusters.map((c, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="rounded-xl border border-slate-100 bg-slate-50 p-4"
+                                  >
+                                    <h3 className="text-base font-bold text-slate-900">{c.tag}</h3>
+                                    <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">
+                                      {c.consolidated_notes}
+                                    </p>
+                                    <SourceBadges
+                                      sources={c.sources}
+                                      onSelectSource={handleSelectSource}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/40 p-6">
+                              <h2 className="text-lg font-bold text-emerald-950">
+                                Décisions Actées
+                              </h2>
+                              <div className="mt-3 space-y-3">
+                                {job.result.decisions_made.map((d, i) => (
+                                  <div key={i} className="rounded-xl bg-white p-4 shadow-sm">
+                                    <div className="font-bold text-slate-900">{d.decision}</div>
+                                    <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
+                                      {d.rationale}
+                                    </p>
+                                    <SourceBadges
+                                      sources={d.sources}
+                                      onSelectSource={handleSelectSource}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                              <h2 className="text-lg font-bold">Plan d'Action</h2>
+                              <div className="mt-3 space-y-3">
+                                {job.result.action_items.map((a, i) => (
+                                  <div key={i} className="rounded-xl border border-slate-100 p-4">
+                                    <div className="text-sm font-semibold text-slate-900">
+                                      {a.task}
+                                    </div>
+                                    <div className="mt-1.5 text-xs font-medium text-indigo-600">
+                                      Responsable : {a.assignee} • Échéance : {a.due_date}
+                                    </div>
+                                    <SourceBadges
+                                      sources={a.sources}
+                                      onSelectSource={handleSelectSource}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {job.result.mode === 'user_journey' && (
+                          <div className="space-y-6">
+                            <MermaidViewer chart={job.result.mermaid_diagram} />
+                            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                              <h2 className="text-lg font-bold">Étapes du Parcours</h2>
+                              <div className="mt-4 space-y-4">
+                                {job.result.steps.map((s) => (
+                                  <div
+                                    key={s.step_number}
+                                    className="rounded-xl border border-slate-200 p-4"
+                                  >
+                                    <div className="font-bold">
+                                      Étape {s.step_number} : {s.stage} — {s.action}
+                                    </div>
+                                    <SourceBadges
+                                      sources={s.sources}
+                                      onSelectSource={handleSelectSource}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {job.result.mode === 'raw_notes' && (
+                          <div className="space-y-6">
+                            <div className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-5 text-sm">
+                              {job.result.deduplication_summary}
+                            </div>
+                            {job.result.clusters.map((c, i) => (
+                              <div
+                                key={i}
+                                className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+                              >
+                                <h2 className="text-lg font-bold">{c.pillar}</h2>
+                                <div className="mt-3 space-y-3">
+                                  {c.consolidated_ideas.map((idea, idx) => (
+                                    <div key={idx} className="rounded-xl bg-slate-50 p-4">
+                                      <div className="font-bold">{idea.title}</div>
+                                      <p className="mt-1 text-sm text-slate-700">
+                                        {idea.structured_content}
+                                      </p>
+                                      <SourceBadges
+                                        sources={idea.sources}
+                                        onSelectSource={handleSelectSource}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <aside className="lg:col-span-4">
+                        <div className="sticky top-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                            <h3 className="font-bold">Inspecteur de Traçabilité</h3>
+                            <button
+                              onClick={() => {
+                                setJob(null);
+                                setFilesState([]);
+                                setStep(1);
+                              }}
+                              className="text-xs font-semibold text-indigo-600 hover:underline"
+                            >
+                              + Nouvelle analyse
+                            </button>
+                          </div>
+                          {activeSource ? (
+                            <div className="mt-4 space-y-3">
+                              <div className="rounded-xl bg-indigo-50 p-3">
+                                <div className="text-xs font-bold text-indigo-600">
+                                  {activeSource.file_name}
+                                </div>
+                                <div className="mt-1 text-xs font-semibold">
+                                  Localisation : {activeSource.location}
+                                </div>
+                              </div>
+                              <blockquote className="rounded-xl border-l-4 border-indigo-500 bg-slate-50 p-3 text-xs italic text-slate-700">
+                                « {activeSource.excerpt} »
+                              </blockquote>
+                              {fullBlockContent && (
+                                <div className="max-h-60 overflow-y-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                                  {fullBlockContent}
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="py-8 text-center text-xs text-slate-400">
+                              Cliquez sur un badge de source pour afficher le passage exact dans le document d'origine.
+                            </p>
+                          )}
+                        </div>
+                      </aside>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+            </main>
+          </div>
+        );
+      };
+
+      ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+  </body>
+</html>

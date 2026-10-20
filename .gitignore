@@ -1,0 +1,14 @@
+# Secrets (clés API)
+backend/.env
+.env
+
+# Environnements Python et dépendances
+.venv/
+backend/.venv/
+frontend/node_modules/
+
+# Builds et caches
+frontend/dist/
+__pycache__/
+*.pyc
+.DS_Store
