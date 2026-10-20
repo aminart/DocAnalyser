@@ -19,8 +19,9 @@ else
     echo "📦 Démarrage du Backend sur http://localhost:8000..."
     if [ -f "backend/.venv/bin/activate" ]; then
         source backend/.venv/bin/activate
-    elif [ -f ".venv/bin/activate" ]; then
-        source .venv/bin/activate
+    else
+        echo "❌ backend/.venv introuvable : voir « Première installation » dans le README."
+        exit 1
     fi
     uvicorn app.main:app --app-dir backend --reload --port 8000 &
     BACKEND_PID=$!
