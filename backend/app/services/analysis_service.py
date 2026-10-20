@@ -14,6 +14,7 @@ Deux formats de résultat :
 from __future__ import annotations
 
 import asyncio
+import difflib
 import json
 import re
 import uuid
@@ -40,7 +41,7 @@ LEVEL_LABELS: dict[str, str] = {"synth": "Synthétique", "detail": "Détaillé",
 
 CHARS_PER_TOKEN = 3.2  # estimation prudente pour le français
 RESERVED_TOKENS = 16_000
-TEMPERATURE = 0.2
+TEMPERATURE = 0  # fidélité : réponses les plus déterministes possibles
 MAX_CONTINUATIONS = 3
 CONTINUE_PROMPT = (
     "Ta réponse a été coupée faute de place. Reprends exactement au caractère où tu t'es arrêté, "
@@ -318,12 +319,16 @@ class StoredDocument:
     ext: str
     size_bytes: int
     units: str  # « 18 pages », « 412 lignes », « 12 slides »...
-    pages: int
+    pages: int  # équivalent en pages, pour l'estimation de durée
     blocks: list[AnchoredTextBlock]
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def chars(self) -> int:
         return sum(len(b.content) for b in self.blocks)
+
+    def plain_text(self) -> str:
+        return "\n".join(b.plain_text() for b in self.blocks)
 
     def public(self) -> dict[str, Any]:
         return {
@@ -333,33 +338,12 @@ class StoredDocument:
             "size_bytes": self.size_bytes,
             "units": self.units,
             "pages": self.pages,
+            "warnings": self.warnings,
         }
 
 
 DOCUMENTS: dict[str, StoredDocument] = {}
 _parser = MultiFormatDocumentParser()
-
-
-def _describe_units(ext: str, blocks: list[AnchoredTextBlock], chars: int) -> tuple[str, int]:
-    """Résumé lisible du volume (pages, slides, lignes) et équivalent en pages."""
-    if ext == "pdf":
-        n = len(blocks)
-        return f"{n} page{'s' if n > 1 else ''}", n
-    if ext in {"pptx", "ppt"}:
-        n = len(blocks)
-        return f"{n} slide{'s' if n > 1 else ''}", n
-    pages = max(1, round(chars / 2500))
-    if ext in {"csv", "xlsx", "xls"}:
-        last = 0
-        for b in blocks:
-            nums = re.findall(r"(\d+)", b.location)
-            if nums:
-                last = max(last, int(nums[-1]))
-        if last:
-            return f"{last} lignes", pages
-    if ext in {"docx", "doc"}:
-        return f"{pages} page{'s' if pages > 1 else ''}", pages
-    return "", pages
 
 
 def store_document(content: bytes, file_name: str) -> StoredDocument:
@@ -368,15 +352,17 @@ def store_document(content: bytes, file_name: str) -> StoredDocument:
     path = settings.STORAGE_DIR / f"v2_{doc_id}_{safe_name}"
     path.write_bytes(content)
     try:
-        blocks = [b for b in _parser.parse_file(path, safe_name) if b.content.strip()]
+        parsed = _parser.parse(path, safe_name)
     except Exception as exc:  # fichier corrompu, format non lisible
         raise AnalysisError(f"Impossible de lire {safe_name} : {exc}") from exc
+    blocks = [b for b in parsed.blocks if b.content.strip()]
     if not blocks:
-        raise AnalysisError(f"Aucun texte exploitable dans {safe_name} (document scanné ?).")
+        detail = f" ({parsed.warnings[0]})" if parsed.warnings else ""
+        raise AnalysisError(f"Aucun texte lisible dans {safe_name}{detail}. Les documents scannés doivent être océrisés.")
     ext = Path(safe_name).suffix.lower().lstrip(".") or "txt"
-    chars = sum(len(b.content) for b in blocks)
-    units, pages = _describe_units(ext, blocks, chars)
-    doc = StoredDocument(doc_id, safe_name, ext, len(content), units, pages, blocks)
+    chars = sum(len(b.plain_text()) for b in blocks)
+    pages = len(blocks) if ext == "pdf" else max(1, round(chars / 2500))
+    doc = StoredDocument(doc_id, safe_name, ext, len(content), parsed.units, pages, blocks, parsed.warnings)
     DOCUMENTS[doc_id] = doc
     return doc
 
@@ -388,20 +374,23 @@ def store_document(content: bytes, file_name: str) -> StoredDocument:
 MODE_GUIDANCE: dict[str, str] = {
     "global": (
         "Croise l'ensemble des documents pour dégager les grands thèmes, les convergences et les points "
-        "de divergence. Les pistes d'action sont des recommandations concrètes découlant des constats."
+        "de divergence. Les pistes d'action sont uniquement les recommandations, demandes, attentes ou décisions "
+        "exprimées dans les documents : n'en propose aucune de ton cru. Liste vide si les documents n'en contiennent pas."
     ),
     "transcript": (
         "Il s'agit de transcriptions (entretien, réunion, atelier). Les thèmes sont les grands sujets abordés ; "
         "fais ressortir idées clés, décisions et verbatims marquants. Les pistes d'action sont les décisions prises "
-        "et prochaines étapes (indique le responsable dans le texte si il est cité)."
+        "et prochaines étapes annoncées (indique le responsable et l'échéance seulement s'ils sont cités)."
     ),
     "notes": (
         "Il s'agit de notes brutes (notes de terrain, post-its, comptes rendus épars). Dédoublonne, remets de l'ordre "
-        "et regroupe les idées par thème. Les pistes d'action sont les prochaines étapes suggérées."
+        "et regroupe les idées par thème. Les pistes d'action sont les prochaines étapes ou idées d'action "
+        "notées dans les documents, sans en ajouter."
     ),
     "flow": (
         "Reconstitue le parcours utilisateur décrit dans les documents : ses étapes, ce que fait l'utilisateur, "
-        "ses points de contact, son ressenti, les frictions, les points de sortie et les opportunités."
+        "ses points de contact, son ressenti, les frictions et les points de sortie. Les opportunités sont "
+        "uniquement les attentes, demandes ou idées d'amélioration exprimées dans les documents."
     ),
 }
 
@@ -465,10 +454,16 @@ FLOW_LEVEL_GUIDANCE: dict[str, str] = {
 }
 
 BASE_RULES = (
-    "Tu es un analyste expert en recherche qualitative. Règles impératives :\n"
-    "- N'invente rien : chaque affirmation doit être étayée par le corpus fourni.\n"
-    "- Les citations (verbatims) sont recopiées mot pour mot depuis le corpus.\n"
-    "- Les noms de documents sont recopiés exactement tels qu'indiqués dans les balises [SOURCE: ...].\n"
+    "Tu es un analyste expert en recherche qualitative. Ta synthèse remplace la lecture des documents : "
+    "elle doit être d'une fidélité absolue au corpus. Règles impératives :\n"
+    "- N'invente rien : chaque affirmation, chiffre, nom, date ou fréquence doit figurer dans le corpus. "
+    "Si une information n'y est pas, laisse le champ vide plutôt que de la deviner.\n"
+    "- Ne déforme pas : conserve le sens, les nuances, les chiffres et les désaccords tels qu'ils sont exprimés.\n"
+    "- Les citations (verbatims) sont recopiées mot pour mot depuis le corpus, sans les reformuler ni les traduire.\n"
+    "- Exploite chaque document fourni ; n'en ignore aucun.\n"
+    "- Les noms de documents sont recopiés exactement tels qu'indiqués dans les balises [SOURCE: ...]. "
+    "Comme emplacement, reprends le repère de la ligne citée tel qu'il apparaît dans le corpus "
+    "(L12, §4, Page 3, Slide 2, 00:01:10).\n"
     "- Réponds uniquement avec un objet JSON valide, sans texte autour."
 )
 
@@ -500,7 +495,7 @@ THEMES_SCHEMA = """{
         {
           "lead": "le point clé en une phrase courte",
           "body": "développement argumenté avec exemples",
-          "sources": [{"document": "nom exact du document", "location": "p. 4 / Lignes 10-20 / Slide 3 ..."}]
+          "sources": [{"document": "nom exact du document", "location": "repère exact du passage (L12, §4, Page 3, Slide 2, 00:01:10)"}]
         }
       ],
       "quote": "verbatim marquant recopié mot pour mot (chaîne vide si aucun)",
@@ -524,7 +519,7 @@ FLOW_SCHEMA = """{
       "does": "ce que fait l'utilisateur à cette étape (1 phrase)",
       "touchpoints": ["points de contact (2 à 4 mots chacun)"],
       "frictions": ["frictions ou points de rupture (phrase courte)"],
-      "opportunities": ["opportunités d'amélioration (phrase courte)"]
+      "opportunities": ["attentes ou idées d'amélioration exprimées dans les documents (phrase courte)"]
     }
   ],
   "flow": {
@@ -552,7 +547,7 @@ FLOW_SCHEMA = """{
       "body": "explication en 1 à 2 phrases",
       "quote": "verbatim recopié mot pour mot",
       "phase": "nom de l'étape concernée",
-      "frequency": "fréquence observée (ex. 9 participants sur 12) ou chaîne vide"
+      "frequency": "fréquence citée dans les documents (ex. 9 participants sur 12), sinon chaîne vide"
     }
   ]
 }"""
@@ -600,9 +595,10 @@ def _full_prompt(mode: str, level: str, language: str, cite: bool) -> str:
 
 
 CONDENSE_PROMPT = (
-    "Tu prépares un corpus pour une analyse qualitative. Condense l'extrait ci-dessous en notes factuelles "
-    "denses : idées, constats, chiffres, décisions, frictions et 2 à 4 verbatims marquants recopiés mot pour mot. "
-    "Conserve pour chaque note la balise [SOURCE: document | LOC: emplacement] d'origine. "
+    "Tu prépares un corpus pour une analyse qualitative ; ton résumé remplacera l'extrait. Condense-le en notes "
+    "factuelles denses sans rien perdre d'utile : toutes les idées, constats, chiffres, décisions, frictions, "
+    "désaccords, et tous les verbatims marquants recopiés mot pour mot. N'ajoute aucune interprétation. "
+    "Conserve pour chaque note la balise [SOURCE: document | LOC: emplacement] et le repère de ligne d'origine. "
     "Réponds en texte brut, sans introduction."
 )
 
@@ -820,7 +816,9 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
         _enter(analysis, 4)
         data = _parse_json(full_raw)
         doc_names = [d.name for d in analysis.documents]
-        result = normalize_journey(data, doc_names) if analysis.mode == "flow" else normalize_themes(data, doc_names)
+        checker = QuoteChecker("\n".join(d.plain_text() for d in analysis.documents))
+        normalize = normalize_journey if analysis.mode == "flow" else normalize_themes
+        result = normalize(data, doc_names, checker)
         analysis.title = result["title"] or analysis.title or MODE_LABELS[analysis.mode]
         result["title"] = analysis.title
         analysis.result = result
@@ -896,7 +894,45 @@ def _match_doc(name: str, doc_names: list[str]) -> str | None:
     return None
 
 
-def normalize_themes(data: dict[str, Any], doc_names: list[str]) -> dict[str, Any]:
+class QuoteChecker:
+    """Retrouve un verbatim dans le texte réel des documents (casse, ponctuation et guillemets ignorés).
+
+    « exact » : présent mot pour mot ; « close » : passage retrouvé mais légèrement reformulé
+    (≥ 70 % des mots dans le même ordre) ; « absent » : aucun passage comparable.
+    """
+
+    CLOSE = 0.7
+
+    def __init__(self, corpus: str) -> None:
+        self.text = self._norm(corpus)
+        self.words = self.text.split()
+        self.positions: dict[str, list[int]] = {}
+        for i, w in enumerate(self.words):
+            self.positions.setdefault(w, []).append(i)
+
+    @staticmethod
+    def _norm(text: str) -> str:
+        return " ".join(re.sub(r"[^\w]+", " ", text.lower()).split())
+
+    def check(self, quote: str) -> Literal["exact", "close", "absent", ""]:
+        q = self._norm(quote)
+        if not q:
+            return ""
+        if f" {q} " in f" {self.text} ":
+            return "exact"
+        qw = q.split()
+        # Les mots les plus rares de la citation servent d'ancres pour localiser le passage d'origine.
+        anchors = sorted({w for w in qw if w in self.positions}, key=lambda w: len(self.positions[w]))[:3]
+        best = 0.0
+        for w in anchors:
+            for pos in self.positions[w][:50]:
+                window = self.words[max(0, pos - len(qw)):pos + len(qw)]
+                matched = sum(bl.size for bl in difflib.SequenceMatcher(None, qw, window, autojunk=False).get_matching_blocks())
+                best = max(best, matched / len(qw))
+        return "close" if best >= self.CLOSE else "absent"
+
+
+def normalize_themes(data: dict[str, Any], doc_names: list[str], checker: QuoteChecker) -> dict[str, Any]:
     themes = []
     citations = {d: 0 for d in doc_names}
     for raw in data.get("themes") or []:
@@ -924,6 +960,7 @@ def normalize_themes(data: dict[str, Any], doc_names: list[str]) -> dict[str, An
             "documents": [d for d in doc_names if d in present],
             "points": points,
             "quote": _s(raw.get("quote")).strip("«»\"“” "),
+            "quote_check": checker.check(_s(raw.get("quote"))),
             "quote_by": _s(raw.get("quote_by")),
             "nuance": _s(raw.get("nuance")),
         })
@@ -955,12 +992,13 @@ def normalize_themes(data: dict[str, Any], doc_names: list[str]) -> dict[str, An
             "themes": len(themes),
             "points": sum(len(t["points"]) for t in themes),
             "quotes": sum(1 for t in themes if t["quote"]),
+            "quotes_exact": sum(1 for t in themes if t["quote_check"] == "exact"),
             "actions": len(actions),
         },
     }
 
 
-def normalize_journey(data: dict[str, Any], doc_names: list[str]) -> dict[str, Any]:
+def normalize_journey(data: dict[str, Any], doc_names: list[str], checker: QuoteChecker) -> dict[str, Any]:
     phases = []
     for raw in data.get("phases") or []:
         if not isinstance(raw, dict) or not _s(raw.get("name")):
@@ -993,6 +1031,7 @@ def normalize_journey(data: dict[str, Any], doc_names: list[str]) -> dict[str, A
             "title": _s(p.get("title")),
             "body": _s(p.get("body")),
             "quote": _s(p.get("quote")).strip("«»\"“” "),
+            "quote_check": checker.check(_s(p.get("quote"))),
             "phase": _s(p.get("phase")),
             "frequency": _s(p.get("frequency")),
         })
@@ -1149,6 +1188,12 @@ def to_mermaid(graph: dict[str, Any]) -> str:
 # Export
 # ---------------------------------------------------------------------------
 
+QUOTE_NOTES = {
+    "close": " _(citation légèrement reformulée par rapport au document)_",
+    "absent": " _(citation introuvable dans les documents : à vérifier)_",
+}
+
+
 def to_markdown(analysis: Analysis) -> str:
     r = analysis.result or {}
     spec = next((m for m in all_models() if m.id == (analysis.active_model_id or analysis.model_id)), None)
@@ -1171,7 +1216,7 @@ def to_markdown(analysis: Analysis) -> str:
                 lines.append(f"- **{p['lead']}** {p['body']}" + (f" _(Sources : {src})_" if src else ""))
             lines.append("")
             if t["quote"]:
-                lines += [f"> « {t['quote']} » — {t['quote_by']}", ""]
+                lines += [f"> « {t['quote']} » — {t['quote_by']}{QUOTE_NOTES.get(t['quote_check'], '')}", ""]
             if t["nuance"]:
                 lines += [f"**Nuance / point de divergence :** {t['nuance']}", ""]
         if r["actions"]:
@@ -1208,7 +1253,7 @@ def to_markdown(analysis: Analysis) -> str:
                     "",
                     p["body"],
                     "",
-                    f"> « {p['quote']} »" if p["quote"] else "",
+                    f"> « {p['quote']} »{QUOTE_NOTES.get(p['quote_check'], '')}" if p["quote"] else "",
                     "",
                     f"Étape : {p['phase']}" + (f" · Cité par {p['frequency']}" if p["frequency"] else ""),
                     "",

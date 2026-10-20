@@ -267,6 +267,11 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                           ? f.error
                           : [f.ext.toUpperCase(), formatSize(f.size), f.doc?.units].filter(Boolean).join(' · ')}
                       </span>
+                      {f.doc?.warnings.map((w) => (
+                        <span key={w} className="text-[13px] font-medium text-[#8A3E0A]">
+                          ⚠ {w}
+                        </span>
+                      ))}
                     </span>
                     <span
                       className={`flex shrink-0 items-center gap-1.5 text-[13px] font-semibold ${

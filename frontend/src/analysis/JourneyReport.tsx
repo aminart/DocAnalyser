@@ -1,7 +1,7 @@
 import React from 'react';
 import { Analysis, JourneyResult, Priority } from './types';
 import { FlowDiagram } from './FlowDiagram';
-import { Disclaimer, Emphasis, ReportBanner, docCountLabel, modelLabel } from './ui';
+import { Disclaimer, Emphasis, QuoteNotice, ReportBanner, docCountLabel, modelLabel } from './ui';
 
 const SEVERITY: Record<Priority['severity'], [string, string]> = {
   Bloquant: ['#FCE4E2', '#9B2216'],
@@ -67,6 +67,9 @@ export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult
               <span className="box-border h-3 w-3 rounded-full border-[3px] border-ink" />
               Ressenti moyen exprimé
             </div>
+            <p className="m-0 mt-auto text-xs leading-normal text-muted">
+              Ressenti et gravité sont estimés par le modèle à partir de ce qu'expriment les documents.
+            </p>
           </div>
         </section>
 
@@ -192,6 +195,7 @@ export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult
                     <span className="text-base font-bold">{pr.title}</span>
                     <span className="font-serif text-[17px] leading-[1.55] text-prose">{pr.body}</span>
                     {pr.quote && <span className="font-serif text-base italic text-body">« {pr.quote} »</span>}
+                    {pr.quote && <QuoteNotice check={pr.quote_check} />}
                   </div>
                   <div className="flex flex-[1_1_180px] flex-col gap-1.5 text-[13px] text-muted">
                     {pr.phase && (

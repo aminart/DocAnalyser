@@ -22,6 +22,7 @@ export interface UploadedDocument {
   size_bytes: number;
   units: string;
   pages: number;
+  warnings: string[]; // parties non lues (pages scannées, slides sans texte…)
 }
 
 export interface AnalysisStep {
@@ -37,6 +38,9 @@ export interface SourceRef {
   location: string;
 }
 
+/** Vérification d'un verbatim dans le texte réel des documents. */
+export type QuoteCheck = 'exact' | 'close' | 'absent' | '';
+
 export interface ThemePoint {
   lead: string;
   body: string;
@@ -49,6 +53,7 @@ export interface Theme {
   documents: string[];
   points: ThemePoint[];
   quote: string;
+  quote_check: QuoteCheck;
   quote_by: string;
   nuance: string;
 }
@@ -71,7 +76,7 @@ export interface ThemesResult {
   themes: Theme[];
   actions: ActionItem[];
   sources: SourceCount[];
-  stats: { themes: number; points: number; quotes: number; actions: number };
+  stats: { themes: number; points: number; quotes: number; quotes_exact: number; actions: number };
 }
 
 export interface JourneyPhase {
@@ -110,6 +115,7 @@ export interface Priority {
   title: string;
   body: string;
   quote: string;
+  quote_check: QuoteCheck;
   phase: string;
   frequency: string;
 }

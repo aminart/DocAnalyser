@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { analysisApi } from './api';
-import { Analysis } from './types';
+import { Analysis, QuoteCheck } from './types';
 
 /* ---------- Icônes (traits 24×24) ---------- */
 
@@ -350,3 +350,15 @@ export const Disclaimer: React.FC = () => (
 export const docCountLabel = (n: number) => `${n} document${n > 1 ? 's' : ''}`;
 
 export const modelLabel = (a: Analysis) => (a.model_fallback ? `${a.model_name} (repli)` : a.model_name);
+
+/** Signale un verbatim qui ne figure pas mot pour mot dans les documents. */
+export const QuoteNotice: React.FC<{ check: QuoteCheck }> = ({ check }) =>
+  check === 'close' ? (
+    <span className="text-xs font-semibold text-[#8A3E0A]">
+      Citation légèrement reformulée par rapport au document
+    </span>
+  ) : check === 'absent' ? (
+    <span className="inline-flex w-fit items-center gap-1.5 rounded-md bg-[#FCE4E2] px-2 py-0.5 text-xs font-semibold text-[#9B2216]">
+      Citation introuvable dans les documents : à vérifier
+    </span>
+  ) : null;

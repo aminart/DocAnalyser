@@ -9,6 +9,7 @@ import {
   docCountLabel,
   extOf,
   modelLabel,
+  QuoteNotice,
   shortDocName,
   themeColor,
 } from './ui';
@@ -47,7 +48,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
   const stats = [
     [result.stats.themes, 'grands thèmes'],
     [result.stats.points, 'points clés'],
-    [result.stats.quotes, 'verbatims retenus'],
+    [result.stats.quotes, result.stats.quotes_exact === result.stats.quotes ? 'verbatims, tous vérifiés' : `verbatims (${result.stats.quotes_exact} vérifiés mot pour mot)`],
     [result.stats.actions, actionsLabel.toLowerCase()],
   ] as const;
 
@@ -96,13 +97,25 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
           </nav>
           <div className="flex flex-col gap-2.5 border-t border-line pt-5">
             <span className="px-3 text-xs font-semibold uppercase tracking-[0.08em] text-body">Sources</span>
-            {result.sources.map((s) => (
-              <div key={s.document} className="flex items-center gap-2.5 px-3 text-[13px]" title={s.document}>
-                <FileBadge ext={extOf(s.document)} size="sm" />
-                <span className="min-w-0 flex-grow truncate">{s.document}</span>
-                {analysis.cite && <span className="text-muted">{s.citations} cit.</span>}
-              </div>
-            ))}
+            {result.sources.map((s) => {
+              const doc = analysis.documents.find((d) => d.name === s.document);
+              const unused = analysis.cite && s.citations === 0 && !result.themes.some((t) => t.documents.includes(s.document));
+              return (
+                <div key={s.document} className="flex flex-col gap-1 px-3 text-[13px]">
+                  <div className="flex items-center gap-2.5" title={s.document}>
+                    <FileBadge ext={extOf(s.document)} size="sm" />
+                    <span className="min-w-0 flex-grow truncate">{s.document}</span>
+                    {analysis.cite && <span className="text-muted">{s.citations} cit.</span>}
+                  </div>
+                  {unused && <span className="pl-8 text-xs text-[#8A3E0A]">Aucun élément retenu de ce document</span>}
+                  {doc?.warnings.map((w) => (
+                    <span key={w} className="pl-8 text-xs text-[#8A3E0A]">
+                      {w}
+                    </span>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </aside>
 
@@ -232,7 +245,12 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                   </ul>
 
                   {t.quote && (
-                    <figure className="m-0 flex flex-col gap-2.5 rounded-xl px-[26px] py-[22px]" style={{ background: t.soft }}>
+                    <figure
+                      className={`m-0 flex flex-col gap-2.5 rounded-xl px-[26px] py-[22px] ${
+                        t.quote_check === 'absent' ? 'border border-dashed border-[#C2560F]' : ''
+                      }`}
+                      style={{ background: t.quote_check === 'absent' ? '#FFFFFF' : t.soft }}
+                    >
                       <blockquote className="m-0 font-serif text-[21px] italic leading-normal text-ink">
                         « {t.quote} »
                       </blockquote>
@@ -241,6 +259,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                           {t.quote_by}
                         </figcaption>
                       )}
+                      <QuoteNotice check={t.quote_check} />
                     </figure>
                   )}
 
