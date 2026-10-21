@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.services import analysis_service as svc
 from app.services.export_service import markdown_to_docx, markdown_to_pdf
+from app.services.source_lookup import passage
 
 router = APIRouter(prefix="/api/v2", tags=["Analyse documentaire"])
 
@@ -79,6 +80,24 @@ async def cancel_analysis(analysis_id: str) -> dict:
     analysis = _get(analysis_id)
     svc.cancel_analysis(analysis)
     return analysis.public()
+
+
+@router.get("/analyses/{analysis_id}/source")
+async def get_source(analysis_id: str, document: str = "", location: str = "", text: str = "") -> dict:
+    """Passage d'origine d'une source citée, pour la vérifier sans quitter la synthèse.
+
+    Sans document (verbatim dont la source n'est pas précisée), on cherche dans tous les documents de l'analyse.
+    """
+    analysis = _get(analysis_id)
+    text = text[:2000]
+    if not document:
+        candidates = [(d, passage(d, "", text)) for d in analysis.documents]
+        doc, found = max(candidates, key=lambda c: (bool(c[1]["lines"]), c[1]["score"]))
+        return {"document": doc.name, "location": "", **found}
+    doc = next((d for d in analysis.documents if d.name == document), None)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Ce document ne fait pas partie de l'analyse.")
+    return {"document": doc.name, "location": location, **passage(doc, location, text)}
 
 
 def _plain(md_text: str) -> str:

@@ -811,6 +811,7 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
         normalize = normalize_journey if analysis.mode == "flow" else normalize_themes
         result = normalize(data, doc_names, checker)
         result["coverage"] = data.get("coverage")
+        _flag_sources(result, analysis.documents)
         analysis.title = result["title"] or analysis.title or MODE_LABELS[analysis.mode]
         result["title"] = analysis.title
         analysis.result = result
@@ -823,6 +824,18 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
         analysis.status, analysis.error = "failed", str(exc)
     except Exception as exc:  # erreur inattendue
         analysis.status, analysis.error = "failed", f"Erreur inattendue : {str(exc)[:300]}"
+
+
+def _flag_sources(result: dict[str, Any], documents: list[StoredDocument]) -> None:
+    """Marque chaque source dont le repère n'existe pas dans le document (« found » à False)."""
+    from app.services.source_lookup import location_exists
+
+    by_name = {d.name: d for d in documents}
+    for t in result.get("themes") or []:
+        for p in t["points"]:
+            for src in p["sources"]:
+                doc = by_name.get(src["document"])
+                src["found"] = bool(doc and src["location"] and location_exists(doc, src["location"]))
 
 
 async def _run_single_pass(analysis: Analysis, chain: list[ModelSpec], corpus: str) -> dict[str, Any]:

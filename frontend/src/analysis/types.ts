@@ -36,6 +36,22 @@ export interface AnalysisStep {
 export interface SourceRef {
   document: string;
   location: string;
+  found?: boolean; // false : le repère cité n'existe pas dans le document
+}
+
+/** Demande d'affichage d'un passage d'origine dans le panneau « Source ». */
+export interface SourceRequest {
+  document: string; // vide : recherche dans tous les documents de l'analyse
+  location: string;
+  text: string; // propos à vérifier (point clé ou verbatim)
+}
+
+export interface SourcePassage {
+  document: string;
+  location: string;
+  found: boolean;
+  nearest: boolean;
+  lines: { ref: string; text: string; hit: boolean }[];
 }
 
 /** Vérification d'un verbatim dans le texte réel des documents. */

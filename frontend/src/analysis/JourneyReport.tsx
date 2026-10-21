@@ -1,5 +1,6 @@
-import React from 'react';
-import { Analysis, JourneyResult, Priority } from './types';
+import React, { useState } from 'react';
+import { SourcePanel } from './SourcePanel';
+import { Analysis, JourneyResult, Priority, SourceRequest } from './types';
 import { FlowDiagram } from './FlowDiagram';
 import { CoverageNote, Disclaimer, Emphasis, QuoteNotice, ReportBanner, docCountLabel, modelLabel } from './ui';
 
@@ -21,6 +22,7 @@ export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult
   result,
   onNewAnalysis,
 }) => {
+  const [source, setSource] = useState<SourceRequest | null>(null);
   const n = result.phases.length;
   const phases = result.phases.map((p, i) => ({
     ...p,
@@ -197,6 +199,15 @@ export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult
                     <span className="font-serif text-[17px] leading-[1.55] text-prose">{pr.body}</span>
                     {pr.quote && <span className="font-serif text-base italic text-body">« {pr.quote} »</span>}
                     {pr.quote && <QuoteNotice check={pr.quote_check} />}
+                    {pr.quote && (
+                      <button
+                        type="button"
+                        onClick={() => setSource({ document: '', location: '', text: pr.quote })}
+                        className="w-fit border-none bg-transparent p-0 text-[13px] font-semibold text-accent underline-offset-2 hover:underline"
+                      >
+                        Voir dans le document
+                      </button>
+                    )}
                   </div>
                   <div className="flex flex-[1_1_180px] flex-col gap-1.5 text-[13px] text-muted">
                     {pr.phase && (
@@ -230,9 +241,13 @@ export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult
                 <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-t border-hair pt-2 text-[15px] text-prose">
                   <span className="flex-[999_1_420px]">{e.text}</span>
                   {e.document && (
-                    <span className="text-xs text-muted">
+                    <button
+                      type="button"
+                      onClick={() => setSource({ document: e.document, location: e.location, text: e.text })}
+                      className="border-none bg-transparent p-0 text-xs text-accent underline-offset-2 hover:underline"
+                    >
                       {e.document} {e.location}
-                    </span>
+                    </button>
                   )}
                 </li>
               ))}
@@ -242,6 +257,7 @@ export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult
 
         <Disclaimer />
       </main>
+      <SourcePanel analysisId={analysis.id} request={source} onClose={() => setSource(null)} />
     </>
   );
 };

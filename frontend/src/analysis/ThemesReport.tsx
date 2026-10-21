@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Analysis, ThemesResult } from './types';
+import { SourcePanel } from './SourcePanel';
+import { Analysis, SourceRequest, ThemesResult } from './types';
 import {
   Disclaimer,
   Emphasis,
@@ -32,6 +33,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
   onNewAnalysis,
 }) => {
   const [closed, setClosed] = useState<number[]>([]);
+  const [source, setSource] = useState<SourceRequest | null>(null);
   const nDocs = analysis.documents.length;
   // Tout ce que le modèle a rédigé est affiché : le niveau a déjà réglé la profondeur de la synthèse.
   const showSources = analysis.cite;
@@ -199,7 +201,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                     {t.title}
                   </h2>
                   <span className="text-[13px] text-muted">
-                    {t.presence} · {t.points.length} points clés
+                    {t.presence} · {t.points.length} point{t.points.length > 1 ? 's' : ''} clé{t.points.length > 1 ? 's' : ''}
                   </span>
                 </div>
                 <button
@@ -232,14 +234,26 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                           {showSources && p.sources.length > 0 && (
                             <span className="flex flex-wrap gap-1.5">
                               {p.sources.map((s, j) => (
-                                <span
+                                <button
                                   key={j}
-                                  title={`${s.document} — ${s.location}`}
-                                  className="inline-flex items-center gap-[5px] rounded-md border border-line bg-page px-2 py-0.5 text-xs text-chip-ink"
+                                  type="button"
+                                  onClick={() =>
+                                    setSource({ document: s.document, location: s.location, text: `${p.lead} ${p.body}`.trim() })
+                                  }
+                                  title={
+                                    s.found === false
+                                      ? `Repère « ${s.location} » introuvable dans ${s.document} : cliquer pour voir le passage le plus proche`
+                                      : `Voir le passage d'origine : ${s.document} — ${s.location}`
+                                  }
+                                  className={`inline-flex items-center gap-[5px] rounded-md border px-2 py-0.5 text-xs transition hover:border-accent hover:text-accent-ink ${
+                                    s.found === false
+                                      ? 'border-dashed border-[#C2560F] bg-white text-[#8A3E0A]'
+                                      : 'border-line bg-page text-chip-ink'
+                                  }`}
                                 >
                                   <Icons.file size={12} />
                                   {[shortDocName(s.document), s.location].filter(Boolean).join(' ')}
-                                </span>
+                                </button>
                               ))}
                             </span>
                           )}
@@ -264,6 +278,13 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                         </figcaption>
                       )}
                       <QuoteNotice check={t.quote_check} />
+                      <button
+                        type="button"
+                        onClick={() => setSource({ document: '', location: '', text: t.quote })}
+                        className="w-fit border-none bg-transparent p-0 text-[13px] font-semibold text-accent underline-offset-2 hover:underline"
+                      >
+                        Voir dans le document
+                      </button>
                     </figure>
                   )}
 
@@ -319,6 +340,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
           <Disclaimer />
         </main>
       </div>
+      <SourcePanel analysisId={analysis.id} request={source} onClose={() => setSource(null)} />
     </>
   );
 };

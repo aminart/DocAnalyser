@@ -1,4 +1,4 @@
-import { Analysis, AnalysisLevel, AnalysisMode, ModelInfo, UploadedDocument } from './types';
+import { Analysis, AnalysisLevel, AnalysisMode, ModelInfo, SourcePassage, SourceRequest, UploadedDocument } from './types';
 
 const API_BASE = (import.meta.env.VITE_ANALYSIS_API_URL || 'http://localhost:8000/api/v2').replace(/\/$/, '');
 
@@ -45,6 +45,9 @@ export const analysisApi = {
   getAnalysis: (id: string) => request<Analysis>(`/analyses/${id}`),
 
   cancelAnalysis: (id: string) => request<Analysis>(`/analyses/${id}`, { method: 'DELETE' }),
+
+  getSource: (id: string, req: SourceRequest) =>
+    request<SourcePassage>(`/analyses/${id}/source?${new URLSearchParams({ ...req })}`),
 
   exportUrl: (id: string, format: 'md' | 'docx' | 'pdf') => `${API_BASE}/analyses/${id}/export?format=${format}`,
 };

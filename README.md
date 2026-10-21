@@ -59,6 +59,7 @@ La synthèse doit pouvoir remplacer la lecture des documents. L'application appl
 - **Lecture** : aucun texte n'est inventé. Les pages scannées ou les slides sans texte sont signalées, pas décrites. L'ordre d'origine est conservé (tableaux Word, formes PowerPoint). Les CSV/TXT en Windows-1252 sont décodés correctement.
 - **Sources** : chaque ligne porte un repère (`L12`, `§4`, `Page 3`, `Slide 2`, `00:01:10`) que le modèle cite pour chaque point.
 - **Consignes** : rien en dehors du corpus (chiffres, fréquences, recommandations), tous les documents et tous les thèmes traités, même en fin de document. Le niveau ne règle que la profondeur de rédaction.
+- **Vérification en un clic** : chaque source et chaque verbatim ouvre le passage d'origine surligné, avec son contexte ; un repère introuvable est signalé et le passage le plus proche est proposé.
 - **Verbatims vérifiés** dans le texte réel : exact, légèrement reformulé, ou introuvable (signalé « à vérifier » à l'écran et dans l'export).
 - **Signaux** : document dont rien n'a été retenu, parties non lues, estimations du modèle (ressenti, gravité).
 - **Pas de troncature** : une réponse coupée faute de place est reprise automatiquement là où le modèle s'est arrêté.
@@ -70,6 +71,7 @@ La synthèse doit pouvoir remplacer la lecture des documents. L'application appl
 - `POST /api/v2/documents` : import et lecture d'un fichier (PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT)
 - `POST /api/v2/analyses` puis `GET /api/v2/analyses/{id}` : analyse en 5 étapes avec aperçu des thèmes en direct
 - `DELETE /api/v2/analyses/{id}` : annulation
+- `GET /api/v2/analyses/{id}/source?document=&location=&text=` : passage d'origine d'une source, lignes concernées surlignées
 - `GET /api/v2/analyses/{id}/export?format=md|docx|pdf`
 
 Les documents et analyses sont conservés en mémoire : un redémarrage du backend les efface.
