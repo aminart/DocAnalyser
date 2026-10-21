@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.analysis_routes import router as analysis_router
+from app.services.analysis_service import load_history
 
 app = FastAPI(
     title="Analyse documentaire API",
@@ -18,6 +19,11 @@ app.add_middleware(
 )
 
 app.include_router(analysis_router)
+
+
+@app.on_event("startup")
+async def restore_history() -> None:
+    load_history()
 
 
 @app.get("/health")

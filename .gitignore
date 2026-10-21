@@ -2,6 +2,9 @@
 backend/.env
 .env
 
+# Documents importés et historique des analyses (données confidentielles)
+backend/data/
+
 # Environnements Python et dépendances
 .venv/
 backend/.venv/

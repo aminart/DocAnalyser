@@ -70,8 +70,12 @@ La synthèse doit pouvoir remplacer la lecture des documents. L'application appl
 - `GET /api/v2/models` : modèles déclarés et leur disponibilité
 - `POST /api/v2/documents` : import et lecture d'un fichier (PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT)
 - `POST /api/v2/analyses` puis `GET /api/v2/analyses/{id}` : analyse en 5 étapes avec aperçu des thèmes en direct
-- `DELETE /api/v2/analyses/{id}` : annulation
+- `GET /api/v2/analyses` : historique
+- `POST /api/v2/analyses/{id}/cancel` : annulation
+- `DELETE /api/v2/analyses/{id}` : suppression (avec les documents qui ne servent plus)
 - `GET /api/v2/analyses/{id}/source?document=&location=&text=` : passage d'origine d'une source, lignes concernées surlignées
 - `GET /api/v2/analyses/{id}/export?format=md|docx|pdf`
 
-Les documents et analyses sont conservés en mémoire : un redémarrage du backend les efface.
+## 5. Historique et données
+
+Documents importés et analyses sont enregistrés dans `backend/data/` (base SQLite `analyses.db` et fichiers d'origine). Ce dossier est exclu de git, car il contient des données confidentielles. L'écran **Historique** permet de rouvrir ou de supprimer une analyse. Supprimer une analyse efface aussi ses documents s'ils ne servent à aucune autre. Un document importé mais jamais analysé est effacé au bout de 24 h. Une analyse en cours lors d'un arrêt du backend est marquée comme interrompue au redémarrage.

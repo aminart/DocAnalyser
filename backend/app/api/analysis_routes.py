@@ -8,6 +8,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from app.services import analysis_service as svc
+from app.services import store
 from app.services.export_service import markdown_to_docx, markdown_to_pdf
 from app.services.source_lookup import passage
 
@@ -26,7 +27,7 @@ class AnalysisCreate(BaseModel):
 def _get(analysis_id: str) -> svc.Analysis:
     analysis = svc.ANALYSES.get(analysis_id)
     if not analysis:
-        raise HTTPException(status_code=404, detail="Analyse introuvable (le serveur a peut-être redémarré).")
+        raise HTTPException(status_code=404, detail="Analyse introuvable : elle a peut-être été supprimée de l’historique.")
     return analysis
 
 
@@ -49,7 +50,10 @@ async def upload_document(file: UploadFile = File(...)) -> dict:
 
 @router.delete("/documents/{document_id}", status_code=204)
 async def delete_document(document_id: str) -> Response:
-    svc.DOCUMENTS.pop(document_id, None)
+    """Retire un document importé, sauf s'il sert à une analyse enregistrée."""
+    if not any(d.id == document_id for a in svc.ANALYSES.values() for d in a.documents):
+        svc.DOCUMENTS.pop(document_id, None)
+        store.delete_document(document_id)
     return Response(status_code=204)
 
 
@@ -75,11 +79,18 @@ async def get_analysis(analysis_id: str) -> dict:
     return _get(analysis_id).public()
 
 
-@router.delete("/analyses/{analysis_id}")
+@router.post("/analyses/{analysis_id}/cancel")
 async def cancel_analysis(analysis_id: str) -> dict:
     analysis = _get(analysis_id)
     svc.cancel_analysis(analysis)
     return analysis.public()
+
+
+@router.delete("/analyses/{analysis_id}", status_code=204)
+async def delete_analysis(analysis_id: str) -> Response:
+    """Supprime une analyse de l'historique, avec ses documents s'ils ne servent pas ailleurs."""
+    svc.delete_analysis(_get(analysis_id))
+    return Response(status_code=204)
 
 
 @router.get("/analyses/{analysis_id}/source")

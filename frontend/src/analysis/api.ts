@@ -1,4 +1,4 @@
-import { Analysis, AnalysisLevel, AnalysisMode, ModelInfo, SourcePassage, SourceRequest, UploadedDocument } from './types';
+import { Analysis, AnalysisLevel, AnalysisSummary, AnalysisMode, ModelInfo, SourcePassage, SourceRequest, UploadedDocument } from './types';
 
 const API_BASE = (import.meta.env.VITE_ANALYSIS_API_URL || 'http://localhost:8000/api/v2').replace(/\/$/, '');
 
@@ -44,7 +44,14 @@ export const analysisApi = {
 
   getAnalysis: (id: string) => request<Analysis>(`/analyses/${id}`),
 
-  cancelAnalysis: (id: string) => request<Analysis>(`/analyses/${id}`, { method: 'DELETE' }),
+  cancelAnalysis: (id: string) => request<Analysis>(`/analyses/${id}/cancel`, { method: 'POST' }),
+
+  listAnalyses: () => request<AnalysisSummary[]>('/analyses'),
+
+  async deleteAnalysis(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/analyses/${id}`, { method: 'DELETE' }).catch(() => null);
+    if (!res || !res.ok) throw new Error('Impossible de supprimer cette analyse.');
+  },
 
   getSource: (id: string, req: SourceRequest) =>
     request<SourcePassage>(`/analyses/${id}/source?${new URLSearchParams({ ...req })}`),

@@ -165,7 +165,7 @@ export const Emphasis: React.FC<{ text: string }> = ({ text }) => (
 
 /* ---------- En-tête ---------- */
 
-export type View = 'new' | 'analysis';
+export type View = 'new' | 'analysis' | 'history';
 
 export const AppHeader: React.FC<{
   active?: View;
@@ -190,6 +190,7 @@ export const AppHeader: React.FC<{
             [
               ['new', 'Nouvelle analyse', true],
               ['analysis', 'Analyse', analysisAvailable],
+              ['history', 'Historique', true],
             ] as const
           ).map(([id, label, enabled]) => (
             <button
@@ -298,7 +299,12 @@ export const ReportBanner: React.FC<{
       <div className="mx-auto flex max-w-[1280px] flex-col gap-4 px-8 pb-[22px] pt-7">
         <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
           <div className="flex min-w-0 flex-[999_1_480px] flex-col gap-1.5">
-            <span className="text-[13px] text-muted">Historique / {formatDate(analysis.created_at)}</span>
+            <span className="text-[13px] text-muted">
+              <a href="#/historique" className="text-muted underline-offset-2 hover:text-accent-ink hover:underline">
+                Historique
+              </a>{' '}
+              / {formatDate(analysis.created_at)}
+            </span>
             <h1 className="m-0 text-[32px] font-bold leading-[1.15] tracking-[-0.02em]">{analysis.title}</h1>
           </div>
           <div className="flex flex-wrap gap-2">

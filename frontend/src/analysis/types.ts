@@ -157,6 +157,19 @@ export interface JourneyResult {
   coverage?: Coverage | null;
 }
 
+/** Ligne de l'historique. */
+export interface AnalysisSummary {
+  id: string;
+  title: string;
+  status: AnalysisStatus;
+  mode: AnalysisMode;
+  mode_label: string;
+  level_label: string;
+  model_name: string;
+  documents: string[];
+  created_at: string;
+}
+
 export interface Analysis {
   id: string;
   status: AnalysisStatus;

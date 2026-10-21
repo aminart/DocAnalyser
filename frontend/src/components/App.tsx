@@ -1,17 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { analysisApi } from '../analysis/api';
 import { ConfigScreen } from '../analysis/ConfigScreen';
+import { HistoryScreen } from '../analysis/HistoryScreen';
 import { JourneyReport } from '../analysis/JourneyReport';
 import { ProgressScreen } from '../analysis/ProgressScreen';
 import { ThemesReport } from '../analysis/ThemesReport';
 import { Analysis } from '../analysis/types';
 import { AppHeader, View, modelLabel } from '../analysis/ui';
 
-type Route = { screen: 'config' } | { screen: 'progress' | 'result'; id: string };
+type Route = { screen: 'config' | 'history' } | { screen: 'progress' | 'result'; id: string };
 
 const LAST_ANALYSIS_KEY = 'analyse-documentaire:last';
 
 const parseHash = (): Route => {
+  if (window.location.hash === '#/historique') return { screen: 'history' };
   const m = window.location.hash.match(/^#\/analyse\/([\w-]+)(\/synthese)?$/);
   return m ? { screen: m[2] ? 'result' : 'progress', id: m[1] } : { screen: 'config' };
 };
@@ -28,9 +30,10 @@ const readLast = () => {
   }
 };
 
-const writeLast = (id: string) => {
+const writeLast = (id: string | null) => {
   try {
-    localStorage.setItem(LAST_ANALYSIS_KEY, id);
+    if (id) localStorage.setItem(LAST_ANALYSIS_KEY, id);
+    else localStorage.removeItem(LAST_ANALYSIS_KEY);
   } catch {
     /* stockage indisponible */
   }
@@ -48,7 +51,7 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
-  const routeId = route.screen === 'config' ? null : route.id;
+  const routeId = 'id' in route ? route.id : null;
 
   // Chargement puis suivi (polling) de l'analyse affichée.
   useEffect(() => {
@@ -87,6 +90,7 @@ export const App: React.FC = () => {
 
   const navigate = (view: View) => {
     if (view === 'new') go('#/');
+    else if (view === 'history') go('#/historique');
     else if (lastId) go(`#/analyse/${lastId}${analysis?.id === lastId && analysis.status === 'done' ? '/synthese' : ''}`);
   };
 
@@ -99,23 +103,45 @@ export const App: React.FC = () => {
     }
   };
 
-  const activeView: View = route.screen === 'config' ? 'new' : 'analysis';
+  const activeView: View = route.screen === 'config' ? 'new' : route.screen === 'history' ? 'history' : 'analysis';
   const nav = { active: activeView, onNavigate: navigate, analysisAvailable: !!lastId };
 
   let body: React.ReactNode = null;
-  if (route.screen !== 'config') {
+  if (route.screen === 'history') {
+    body = (
+      <HistoryScreen
+        onOpen={(it) => go(`#/analyse/${it.id}${it.status === 'done' ? '/synthese' : ''}`)}
+        onNew={() => go('#/')}
+        onDeleted={(id) => {
+          if (id === lastId) {
+            setLastId(null);
+            writeLast(null);
+          }
+        }}
+      />
+    );
+  } else if (route.screen !== 'config') {
     if (loadError) {
       body = (
         <main className="mx-auto flex max-w-[760px] flex-col items-center gap-4 px-6 py-20 text-center">
           <h1 className="m-0 text-[26px] font-bold">Analyse indisponible</h1>
           <p className="m-0 text-muted">{loadError}</p>
-          <button
-            type="button"
-            onClick={() => go('#/')}
-            className="min-h-11 rounded-[10px] border-none bg-ink px-5 font-semibold text-white"
-          >
-            Nouvelle analyse
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => go('#/historique')}
+              className="min-h-11 rounded-[10px] border border-line-strong bg-white px-5 font-semibold text-ink"
+            >
+              Voir l’historique
+            </button>
+            <button
+              type="button"
+              onClick={() => go('#/')}
+              className="min-h-11 rounded-[10px] border-none bg-ink px-5 font-semibold text-white"
+            >
+              Nouvelle analyse
+            </button>
+          </div>
         </main>
       );
     } else if (!current) {

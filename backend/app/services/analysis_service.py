@@ -26,6 +26,7 @@ from typing import Any, Literal
 import litellm
 
 from app.core.config import settings
+from app.services import store
 from app.services.parser_service import AnchoredTextBlock, MultiFormatDocumentParser
 
 Mode = Literal["global", "transcript", "notes", "flow"]
@@ -368,6 +369,7 @@ def store_document(content: bytes, file_name: str) -> StoredDocument:
     pages = len(blocks) if ext == "pdf" else max(1, round(chars / 2500))
     doc = StoredDocument(doc_id, safe_name, ext, len(content), parsed.units, pages, blocks, parsed.warnings)
     DOCUMENTS[doc_id] = doc
+    store.save_document(doc)
     return doc
 
 
@@ -679,7 +681,7 @@ class Analysis:
             "level": self.level,
             "level_label": LEVEL_LABELS[self.level],
             "model_id": self.model_id,
-            "model_name": spec.name if spec else self.model_id,
+            "model_name": spec.name if spec else self.model_id.split(":", 1)[-1],
             "model_fallback": bool(self.active_model_id and self.active_model_id != self.model_id),
             "language": self.language,
             "cite": self.cite,
@@ -691,11 +693,16 @@ class Analysis:
         }
 
     def summary(self) -> dict[str, Any]:
+        spec = next((m for m in all_models() if m.id == (self.active_model_id or self.model_id)), None)
         return {
             "id": self.id,
             "title": self.title or MODE_LABELS[self.mode],
             "status": self.status,
             "mode": self.mode,
+            "mode_label": MODE_LABELS[self.mode],
+            "level_label": LEVEL_LABELS[self.level],
+            "model_name": spec.name if spec else self.model_id.split(":", 1)[-1],
+            "documents": [d.name for d in self.documents],
             "created_at": self.created_at.isoformat(),
         }
 
@@ -727,6 +734,7 @@ def create_analysis(
         language=language, cite=cite, documents=docs, created_at=datetime.now(timezone.utc),
     )
     ANALYSES[analysis.id] = analysis
+    store.save_analysis(analysis)
     analysis.task = asyncio.create_task(_run(analysis, spec))
     return analysis
 
@@ -736,6 +744,26 @@ def cancel_analysis(analysis: Analysis) -> None:
         analysis.task.cancel()
     if analysis.status == "running":
         analysis.status = "cancelled"
+    store.save_analysis(analysis)
+
+
+def delete_analysis(analysis: Analysis) -> None:
+    """Supprime une analyse, et ses documents s'ils ne servent à aucune autre analyse."""
+    cancel_analysis(analysis)
+    ANALYSES.pop(analysis.id, None)
+    store.delete_analysis(analysis.id)
+    still_used = {d.id for a in ANALYSES.values() for d in a.documents}
+    for doc in analysis.documents:
+        if doc.id not in still_used:
+            DOCUMENTS.pop(doc.id, None)
+            store.delete_document(doc.id)
+
+
+def load_history() -> None:
+    """Recharge documents et analyses enregistrés (appelé au démarrage du serveur)."""
+    documents, analyses = store.load_all()
+    DOCUMENTS.update(documents)
+    ANALYSES.update(analyses)
 
 
 async def _creep(analysis: Analysis, target: float) -> None:
@@ -824,6 +852,9 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
         analysis.status, analysis.error = "failed", str(exc)
     except Exception as exc:  # erreur inattendue
         analysis.status, analysis.error = "failed", f"Erreur inattendue : {str(exc)[:300]}"
+    finally:
+        if analysis.id in ANALYSES:  # pas d'enregistrement si l'analyse vient d'être supprimée
+            store.save_analysis(analysis)
 
 
 def _flag_sources(result: dict[str, Any], documents: list[StoredDocument]) -> None:

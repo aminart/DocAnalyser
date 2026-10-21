@@ -5,7 +5,8 @@ from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+ENV_PATH = BACKEND_DIR / ".env"
 
 
 class Settings(BaseSettings):
@@ -46,7 +47,8 @@ class Settings(BaseSettings):
     ANTHROPIC_CONTEXT_TOKENS: int = 200_000
 
     # Paramètres généraux
-    STORAGE_DIR: Path = Path("/tmp/doc_intel_storage")
+    # Documents importés et historique des analyses (hors de /tmp, que macOS vide au redémarrage)
+    STORAGE_DIR: Path = BACKEND_DIR / "data"
     MAX_CONCURRENT_LLM_REQUESTS: int = 4
 
     @staticmethod
