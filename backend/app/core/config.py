@@ -50,6 +50,9 @@ class Settings(BaseSettings):
     # Documents importés et historique des analyses (hors de /tmp, que macOS vide au redémarrage)
     STORAGE_DIR: Path = BACKEND_DIR / "data"
     MAX_CONCURRENT_LLM_REQUESTS: int = 4
+    # Taille maximale d'une requête (tokens), en dessous de la fenêtre du modèle : utile quand l'offre limite
+    # le volume par minute (ex. clé Gemini gratuite). 0 = pas de limite autre que la fenêtre du modèle.
+    MAX_REQUEST_TOKENS: int = 0
 
     @staticmethod
     def _is_key_set(raw_key: str) -> bool:

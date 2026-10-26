@@ -58,6 +58,8 @@ Un modèle n'est sélectionnable que si l'`API_BASE` de son fournisseur est rens
 
 En cas de quota dépassé ou de surcharge, l'analyse bascule automatiquement sur un autre modèle du même fournisseur.
 
+**Gros documents et offres limitées** : certaines offres (par exemple une clé Gemini gratuite) limitent le volume traité par minute, bien en dessous de la fenêtre théorique du modèle. Si un gros document envoyé d'un bloc est refusé, l'application bascule automatiquement sur l'analyse par lots. Pour l'éviter d'emblée, fixez `MAX_REQUEST_TOKENS` (par exemple `120000`) et réduisez `MAX_CONCURRENT_LLM_REQUESTS` à 1 ou 2.
+
 Redémarrez le backend après toute modification du `.env`. Ne versionnez jamais `backend/.env` (il est exclu par `.gitignore`).
 
 ## 3. Fidélité aux documents

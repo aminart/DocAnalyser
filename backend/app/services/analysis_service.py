@@ -14,6 +14,7 @@ Deux formats de résultat :
 from __future__ import annotations
 
 import asyncio
+import logging
 import difflib
 import json
 import re
@@ -44,14 +45,28 @@ CHARS_PER_TOKEN = 3.2  # estimation prudente pour le français
 RESERVED_TOKENS = 16_000
 TEMPERATURE = 0  # fidélité : réponses les plus déterministes possibles
 MAX_CONTINUATIONS = 3
+# Au-delà, un échec d'envoi en un seul bloc déclenche le repli sur l'analyse par lots.
+LARGE_REQUEST_TOKENS = 150_000
+FALLBACK_REQUEST_TOKENS = 128_000
 CONTINUE_PROMPT = (
     "Ta réponse a été coupée faute de place. Reprends exactement au caractère où tu t'es arrêté, "
     "sans rien répéter ni ajouter de commentaire."
 )
 
 
+logger = logging.getLogger("analyse")
+
+
 class AnalysisError(Exception):
     """Erreur métier remontée telle quelle à l'interface."""
+
+
+class InvalidModelOutput(AnalysisError):
+    """La réponse du modèle n'est pas un JSON exploitable."""
+
+
+class ProviderUnavailable(AnalysisError):
+    """Le fournisseur n'a pas traité la requête (quota, surcharge, délai dépassé) malgré les essais."""
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +314,11 @@ def _friendly_error(spec: ModelSpec, exc: Exception) -> str:
         return f"Le modèle {spec.name} n'a pas répondu à temps. Réessayez avec un niveau moins détaillé."
     if isinstance(exc, litellm.ContextWindowExceededError):
         return f"Le corpus dépasse la fenêtre de contexte de {spec.name}."
-    return f"Échec de l'appel au modèle {spec.name} : {str(exc)[:300]}"
+    detail = re.search(r'"message"\s*:\s*"([^"]{1,300})"', str(exc))
+    reason = detail.group(1) if detail else str(exc)[:300]
+    if isinstance(exc, litellm.BadRequestError):
+        return f"Le fournisseur de {spec.name} a refusé une requête : {reason}"
+    return f"Échec de l'appel au modèle {spec.name} : {reason}"
 
 
 def fallback_chain(spec: ModelSpec) -> list[ModelSpec]:
@@ -311,23 +330,40 @@ def fallback_chain(spec: ModelSpec) -> list[ModelSpec]:
 
 
 def _parse_json(raw: str) -> dict[str, Any]:
+    """Lecture tolérante : bloc ```json, texte autour, retours à la ligne non échappés, virgules en trop."""
     text = raw.strip()
     fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
     if fence:
         text = fence.group(1).strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
-        start, end = text.find("{"), text.rfind("}")
-        if start < 0 or end <= start:
-            raise AnalysisError("Le modèle n'a pas renvoyé de JSON exploitable.")
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        raise InvalidModelOutput("Le modèle n'a pas renvoyé de JSON exploitable.")
+    body = text[start : end + 1]
+    for candidate in (body, re.sub(r",\s*([}\]])", r"\1", body)):
         try:
-            data = json.loads(text[start : end + 1])
-        except json.JSONDecodeError as exc:
-            raise AnalysisError("Le modèle a renvoyé un JSON invalide.") from exc
+            data = json.loads(candidate, strict=False)  # strict=False : caractères de contrôle dans les chaînes
+            break
+        except json.JSONDecodeError:
+            continue
+    else:
+        raise InvalidModelOutput("Le modèle a renvoyé un JSON invalide.")
     if not isinstance(data, dict):
-        raise AnalysisError("Le modèle a renvoyé une structure inattendue.")
+        raise InvalidModelOutput("Le modèle a renvoyé une structure inattendue.")
     return data
+
+
+async def _call_json(analysis: "Analysis", chain: list[ModelSpec], system_prompt: str, user: str, **kwargs) -> dict[str, Any]:
+    """Appel au modèle dont la réponse doit être un objet JSON ; un nouvel essai si elle est illisible."""
+    for attempt in range(2):
+        raw = await _call(analysis, chain, system_prompt, user, **kwargs)
+        try:
+            return _parse_json(raw)
+        except InvalidModelOutput:
+            if attempt:
+                raise
+            user += ("\n\n(Ta réponse précédente n'était pas un JSON valide. Réponds uniquement avec un objet JSON "
+                     "valide et complet, en échappant les guillemets dans les textes.)")
+    raise AssertionError("inatteignable")
 
 
 # ---------------------------------------------------------------------------
@@ -663,6 +699,7 @@ class Analysis:
     active_model_id: str = ""
     batched: bool = False  # corpus trop grand pour le modèle : analyse par lots
     step_notes: dict[int, str] = field(default_factory=dict)  # précisions d'étape (« lot 3/6 »)
+    context_cap: int = 0  # plafond de taille de requête après un échec d'envoi en un seul bloc
 
     def step_details(self) -> list[str]:
         total_pages = sum(d.pages for d in self.documents)
@@ -811,13 +848,16 @@ async def _with_creep(analysis: Analysis, end: float, coro):
 
 async def _call(
     analysis: Analysis, chain: list[ModelSpec], system_prompt: str, user: str, want_json: bool = True,
-    on_text: Callable[[str], None] | None = None,
+    on_text: Callable[[str], None] | None = None, patient: bool = True,
 ) -> str:
-    """Appelle le modèle actif ; bascule sur le suivant de la chaîne en cas de quota ou de surcharge."""
+    """Appelle le modèle actif ; bascule sur le suivant de la chaîne en cas de quota ou de surcharge.
+
+    patient=False : un seul essai par modèle (inutile de renvoyer plusieurs fois une requête démesurée).
+    """
     start = next((i for i, m in enumerate(chain) if m.id == analysis.active_model_id), 0)
     last: Exception | None = None
     for spec in chain[start:]:
-        for attempt, wait in enumerate((0, *RETRY_WAITS)):
+        for attempt, wait in enumerate((0, *RETRY_WAITS) if patient else (0,)):
             if wait:
                 await asyncio.sleep(wait)  # surcharge passagère : on patiente avant de réessayer
             try:
@@ -834,8 +874,9 @@ async def _call(
             except AnalysisError:
                 raise
             except Exception as exc:
+                logger.warning("Appel à %s refusé : %s", spec.name, exc)  # détail complet dans la console du backend
                 raise AnalysisError(_friendly_error(spec, exc)) from exc
-    raise AnalysisError(_friendly_error(chain[-1] if len(chain) > 1 else chain[0], last or Exception()))
+    raise ProviderUnavailable(_friendly_error(chain[-1] if len(chain) > 1 else chain[0], last or Exception()))
 
 
 def _enter(analysis: Analysis, step: int) -> None:
@@ -855,13 +896,28 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
         checker = QuoteChecker("\n".join(d.plain_text() for d in analysis.documents))
         await asyncio.sleep(0.6)  # laisse l'interface afficher l'étape
 
+        run_batches = batch_pipeline.run_flow if analysis.mode == "flow" else batch_pipeline.run_themes
         if batch_pipeline.needs_batches(chain[0], corpus):
             # Corpus plus grand que la fenêtre du modèle : extraction par lots, puis rédaction thème par thème.
             analysis.batched = True
-            run = batch_pipeline.run_flow if analysis.mode == "flow" else batch_pipeline.run_themes
-            data = await run(analysis, chain, checker)
+            data = await run_batches(analysis, chain, checker)
         else:
-            data = await _run_single_pass(analysis, chain, corpus)
+            large = len(corpus) / CHARS_PER_TOKEN > LARGE_REQUEST_TOKENS
+            try:
+                data = await _run_single_pass(analysis, chain, corpus, patient=not large)
+            except ProviderUnavailable:
+                if not large:
+                    raise
+                # Le fournisseur n'a pas traité le corpus d'un bloc (souvent une limite de volume par minute) :
+                # on repart en analyse par lots, avec des requêtes de taille raisonnable.
+                analysis.batched, analysis.context_cap = True, FALLBACK_REQUEST_TOKENS
+                analysis.active_model_id, analysis.preview, analysis.title = "", [], ""
+                analysis.progress, analysis.step = 15, 1
+                tokens_k = round(len(corpus) / CHARS_PER_TOKEN / 1000)
+                analysis.step_notes[1] = (
+                    f"Le modèle n'a pas pu traiter les ≈ {tokens_k} 000 tokens d'un seul bloc : passage à l'analyse par lots"
+                )
+                data = await run_batches(analysis, chain, checker)
 
         # 5. Mise en forme
         _enter(analysis, 4)
@@ -924,7 +980,7 @@ def _streamed_names(text: str, mode: str) -> tuple[str, list[str]]:
     return title, [n.strip() for n in names if n.strip()]
 
 
-async def _run_single_pass(analysis: Analysis, chain: list[ModelSpec], corpus: str) -> dict[str, Any]:
+async def _run_single_pass(analysis: Analysis, chain: list[ModelSpec], corpus: str, patient: bool = True) -> dict[str, Any]:
     """Le corpus tient dans la fenêtre du modèle : un seul appel sur le texte intégral.
 
     La réponse arrive en streaming : les thèmes s'affichent dans l'aperçu dès que le modèle les écrit,
@@ -951,14 +1007,14 @@ async def _run_single_pass(analysis: Analysis, chain: list[ModelSpec], corpus: s
 
     creeper = asyncio.create_task(creep())
     try:
-        raw = await _call(
+        data = await _call_json(
             analysis, chain, _full_prompt(analysis.mode, analysis.level, analysis.language, analysis.cite),
-            "Corpus :\n\n" + corpus, on_text=on_text,
+            "Corpus :\n\n" + corpus, on_text=on_text, patient=patient,
         )
     finally:
         creeper.cancel()
     _enter(analysis, 3)
-    return _parse_json(raw)
+    return data
 
 
 # ---------------------------------------------------------------------------

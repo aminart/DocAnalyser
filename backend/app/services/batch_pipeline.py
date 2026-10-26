@@ -19,7 +19,11 @@ from app.core.config import settings
 from app.services import analysis_service as svc
 from app.services.parser_service import AnchoredTextBlock
 
-EXTRACT_SHARE = 0.5  # part de la fenêtre utilisée par un lot (le reste : consignes et réponse)
+EXTRACT_SHARE = 0.5
+ASSIGN_MAX_ITEMS = 100  # éléments par appel de classement : au-delà, les petits modèles en oublient
+WRITE_MAX_ITEMS = 40  # éléments par appel de rédaction d'un thème
+MAX_OTHER_SHARE = 0.15  # au-delà, de nouveaux thèmes sont dégagés à partir des éléments non classés
+MAX_THEME_ROUNDS = 2  # part de la fenêtre utilisée par un lot (le reste : consignes et réponse)
 PASSAGE_SHARE = 0.55  # part de la fenêtre pour éléments + passages lors de la rédaction d'un thème
 MAX_MERGE_ROUNDS = 4
 
@@ -36,8 +40,14 @@ KIND_HINTS = {
 }
 
 
-def budget_chars(spec: svc.ModelSpec) -> int:
-    tokens = spec.context_tokens - svc.RESERVED_TOKENS
+def window_tokens(spec: svc.ModelSpec, cap: int = 0) -> int:
+    """Taille de requête utilisable : fenêtre du modèle, bornée par MAX_REQUEST_TOKENS et par un plafond éventuel."""
+    limits = [spec.context_tokens] + [x for x in (settings.MAX_REQUEST_TOKENS, cap) if x]
+    return min(limits)
+
+
+def budget_chars(spec: svc.ModelSpec, cap: int = 0) -> int:
+    tokens = window_tokens(spec, cap) - svc.RESERVED_TOKENS
     if tokens < 4000:
         raise svc.AnalysisError(f"La fenêtre de contexte de {spec.name} est trop petite pour analyser des documents.")
     return int(tokens * svc.CHARS_PER_TOKEN)
@@ -64,11 +74,11 @@ class Item:
         return f"{self.id} [{self.kind}] ({where}) {body}"
 
 
-def _group(texts: list[str], max_chars: int) -> list[list[int]]:
-    """Regroupe des textes consécutifs en paquets de max_chars caractères au plus (indices)."""
+def _group(texts: list[str], max_chars: int, max_items: int = 0) -> list[list[int]]:
+    """Regroupe des textes consécutifs en paquets d'au plus max_chars caractères (et max_items textes)."""
     groups, current, size = [], [], 0
     for i, t in enumerate(texts):
-        if current and size + len(t) > max_chars:
+        if current and (size + len(t) > max_chars or (max_items and len(current) >= max_items)):
             groups.append(current)
             current, size = [], 0
         current.append(i)
@@ -116,20 +126,36 @@ def _lang(language: str) -> str:
 
 async def extract(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: svc.QuoteChecker) -> tuple[list[Item], list[str], int]:
     segments = [b.to_prompt_segment() for d in analysis.documents for b in d.blocks]
-    groups = _group(segments, int(budget_chars(chain[0]) * EXTRACT_SHARE))
+    groups = _group(segments, int(budget_chars(chain[0], analysis.context_cap) * EXTRACT_SHARE))
     doc_names = [d.name for d in analysis.documents]
     prompt = _extract_prompt(analysis.mode, analysis.language)
     done = 0
 
+    # Message de repli (envoi d'un bloc refusé) conservé en tête de la progression.
+    previous = analysis.step_notes.get(1, "")
+    prefix = f"{previous} · " if previous.startswith("Le modèle n'a pas pu") else ""
+
+    async def extract_part(idx: list[int]) -> dict[str, Any]:
+        try:
+            return await svc._call_json(analysis, chain, prompt, "Extrait du corpus :\n\n" + "\n".join(segments[i] for i in idx))
+        except svc.InvalidModelOutput:
+            if len(idx) < 2:
+                raise
+            # Réponse illisible même après un nouvel essai : on redécoupe le lot (réponse plus courte, plus fiable).
+            half = len(idx) // 2
+            a, b = await extract_part(idx[:half]), await extract_part(idx[half:])
+            return {"items": (a.get("items") or []) + (b.get("items") or []),
+                    "topics": (a.get("topics") or []) + (b.get("topics") or [])}
+
     async def one(idx: list[int]) -> dict[str, Any]:
         nonlocal done
-        raw = await svc._call(analysis, chain, prompt, "Extrait du corpus :\n\n" + "\n".join(segments[i] for i in idx))
+        result = await extract_part(idx)
         done += 1
         analysis.progress = 15 + 15 * done / len(groups)
-        analysis.step_notes[1] = f"{len(groups)} lots pour tenir dans la fenêtre du modèle · lot {done}/{len(groups)} extrait"
-        return svc._parse_json(raw)
+        analysis.step_notes[1] = f"{prefix}{len(groups)} lots · lot {done}/{len(groups)} extrait"
+        return result
 
-    analysis.step_notes[1] = f"{len(groups)} lots pour tenir dans la fenêtre du modèle"
+    analysis.step_notes[1] = f"{prefix}{len(groups)} lots pour tenir dans la fenêtre du modèle"
     results = await _gather_limited([one(g) for g in groups])
 
     items: list[Item] = []
@@ -161,71 +187,102 @@ async def extract(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: s
 # 2. Classement en thèmes
 # ---------------------------------------------------------------------------
 
-async def classify(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item], topics: list[str]) -> tuple[str, list[dict[str, Any]], int]:
-    """Retourne (titre, thèmes avec leurs éléments, nombre d'éléments non classés par le modèle)."""
-    prompt = "\n\n".join([
-        svc.BASE_RULES,
-        svc.MODE_GUIDANCE[analysis.mode],
-        "Voici les sujets repérés dans les différentes parties d'un même corpus. Établis la liste des grands thèmes "
-        "de la synthèse : fusionne les sujets identiques ou très proches, mais ne perds aucun sujet. "
-        + svc.COMPLETENESS_RULE,
-        svc.LEVEL_GUIDANCE[analysis.level],
-        _lang(analysis.language),
-        'Schéma JSON attendu :\n{"title": "titre court et explicite de l\'étude", '
-        '"themes": [{"title": "intitulé du thème (3 à 6 mots)", "scope": "ce que couvre le thème, en une phrase"}]}',
-    ])
-    budget = budget_chars(chain[0])
-    topic_text = "\n".join(f"- {t}" for t in topics) or "\n".join(i.line() for i in items[:200])
-    outline = svc._parse_json(await svc._call(analysis, chain, prompt, topic_text[:budget]))
+THEMES_SCHEMA_SHORT = ('Schéma JSON attendu :\n{"title": "titre court et explicite de l\'étude", '
+                       '"themes": [{"title": "intitulé du thème (3 à 6 mots)", "scope": "ce que couvre le thème, en une phrase"}]}')
+
+
+async def _propose_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], material: str,
+                          existing: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    """Thèmes de la synthèse, à partir des sujets repérés ou d'éléments restés sans thème."""
+    if existing:
+        task = ("Les éléments ci-dessous, extraits du corpus, ne rentrent dans aucun des thèmes existants. Propose des "
+                "thèmes supplémentaires, distincts des existants, pour les couvrir tous.\nThèmes existants :\n"
+                + "\n".join(f"- {t['title']}" for t in existing))
+    else:
+        task = ("Voici les sujets repérés dans les différentes parties d'un même corpus. Établis la liste des grands "
+                "thèmes de la synthèse : fusionne les sujets identiques ou très proches, mais ne perds aucun sujet. "
+                "Pour un corpus volumineux, prévois assez de thèmes pour que chacun reste lisible.")
+    prompt = "\n\n".join([svc.BASE_RULES, svc.MODE_GUIDANCE[analysis.mode], task, svc.COMPLETENESS_RULE,
+                           _lang(analysis.language), THEMES_SCHEMA_SHORT])
+    outline = await svc._call_json(analysis, chain, prompt, material[: budget_chars(chain[0], analysis.context_cap)])
+    known = {t["title"].lower() for t in existing}
     themes = [
         {"title": svc._s(t.get("title")), "scope": svc._s(t.get("scope")), "items": []}
-        for t in outline.get("themes") or [] if isinstance(t, dict) and svc._s(t.get("title"))
+        for t in outline.get("themes") or []
+        if isinstance(t, dict) and svc._s(t.get("title")) and svc._s(t.get("title")).lower() not in known
     ]
-    if not themes:
-        raise svc.AnalysisError("Le modèle n'a identifié aucun thème exploitable.")
-    for t in themes:
-        analysis.preview.append(t["title"])
-    analysis.progress = 40
+    return svc._s(outline.get("title")), themes
 
-    # Affectation des éléments par paquets : chaque élément va dans exactement un thème.
+
+async def _assign(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item],
+                  themes: list[dict[str, Any]]) -> dict[str, int]:
+    """Numéro de thème (1…n) de chaque élément ; les éléments oubliés par le modèle sont redemandés une fois."""
     theme_list = "\n".join(f"{i + 1}. {t['title']} — {t['scope']}" for i, t in enumerate(themes))
-    assign_prompt = "\n\n".join([
+    prompt = "\n\n".join([
         "Tu répartis des éléments extraits d'un corpus entre des thèmes. Chaque élément va dans le thème qui lui "
-        "correspond le mieux ; 0 seulement s'il ne correspond à aucun thème.",
+        "correspond le mieux ; 0 seulement s'il ne correspond à aucun thème. Réponds pour CHAQUE identifiant fourni.",
         "Thèmes :\n" + theme_list,
         'Schéma JSON attendu : {"assign": {"identifiant de l\'élément": numéro du thème}}',
     ])
-    lines = [i.line() for i in items]
-    groups = _group(lines, int(budget * 0.6) - len(theme_list))
-    done = 0
+    budget = int(budget_chars(chain[0], analysis.context_cap) * 0.6) - len(theme_list)
+    result: dict[str, int] = {}
 
-    async def one(idx: list[int]) -> dict[str, Any]:
-        nonlocal done
-        raw = await svc._call(analysis, chain, assign_prompt, "Éléments :\n" + "\n".join(lines[i] for i in idx))
-        done += 1
-        analysis.progress = 40 + 20 * done / len(groups)
-        analysis.step_notes[2] = f"{len(themes)} thèmes · classement des {len(items)} éléments extraits ({done}/{len(groups)})"
-        return svc._parse_json(raw).get("assign") or {}
+    async def one(part: list[Item]) -> dict[str, Any]:
+        out = await svc._call_json(analysis, chain, prompt, "Éléments :\n" + "\n".join(i.line() for i in part))
+        mapping = out.get("assign")
+        return mapping if isinstance(mapping, dict) else {}
+
+    pending = items
+    for _ in range(2):  # second passage : éléments que le modèle n'a pas renvoyés
+        groups = _group([i.line() for i in pending], budget, ASSIGN_MAX_ITEMS)
+        for mapping in await _gather_limited([one([pending[k] for k in g]) for g in groups]):
+            for item_id, num in mapping.items():
+                try:
+                    result.setdefault(item_id, int(num))
+                except (TypeError, ValueError):
+                    continue
+        pending = [i for i in pending if i.id not in result]
+        if not pending:
+            break
+    return result
+
+
+async def classify(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item], topics: list[str]) -> tuple[str, list[dict[str, Any]], int]:
+    """Retourne (titre, thèmes avec leurs éléments, nombre d'éléments restés sans thème)."""
+    topic_text = "\n".join(f"- {t}" for t in topics) or "\n".join(i.line() for i in items[:200])
+    title, themes = await _propose_themes(analysis, chain, topic_text, [])
+    if not themes:
+        raise svc.AnalysisError("Le modèle n'a identifié aucun thème exploitable.")
+    analysis.preview += [t["title"] for t in themes]
+    analysis.progress = 40
 
     by_id = {i.id: i for i in items}
-    assigned: set[str] = set()
-    for mapping in await _gather_limited([one(g) for g in groups]):
-        if not isinstance(mapping, dict):
-            continue
-        for item_id, num in mapping.items():
-            try:
-                n = int(num)
-            except (TypeError, ValueError):
-                continue
-            if item_id in by_id and item_id not in assigned and 1 <= n <= len(themes):
-                themes[n - 1]["items"].append(by_id[item_id])
-                assigned.add(item_id)
+    placed: dict[str, int] = {}
+    to_place = items
+    for round_ in range(1 + MAX_THEME_ROUNDS):
+        n = len(themes)
+        analysis.step_notes[2] = f"{n} thème{'s' if n > 1 else ''} · classement de {len(to_place)} éléments extraits"
+        for item_id, num in (await _assign(analysis, chain, to_place, themes)).items():
+            if item_id in by_id and 1 <= num <= len(themes):
+                placed[item_id] = num
+        analysis.progress = min(59, 40 + 7 * (round_ + 1))
+        leftovers = [i for i in items if i.id not in placed]
+        if len(leftovers) <= max(10, MAX_OTHER_SHARE * len(items)) or round_ == MAX_THEME_ROUNDS:
+            break
+        # Trop d'éléments sans thème : de nouveaux thèmes sont dégagés à partir de ces éléments.
+        _, extra = await _propose_themes(analysis, chain, "\n".join(i.line() for i in leftovers), themes)
+        if not extra:
+            break
+        themes += extra
+        analysis.preview += [t["title"] for t in extra]
+        to_place = leftovers
 
-    leftovers = [i for i in items if i.id not in assigned]
+    for item_id, num in placed.items():
+        themes[num - 1]["items"].append(by_id[item_id])
+    leftovers = [i for i in items if i.id not in placed]
     if leftovers:  # rien n'est perdu en silence
         themes.append({"title": OTHER_POINTS, "scope": OTHER_SCOPE, "items": leftovers})
-    themes = [t for t in themes if t["items"]]
-    return svc._s(outline.get("title")), themes, len(leftovers)
+    return title, [t for t in themes if t["items"]], len(leftovers)
 
 
 # ---------------------------------------------------------------------------
@@ -301,33 +358,50 @@ def _theme_prompt(analysis: svc.Analysis) -> str:
 
 
 async def write_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    budget = int(budget_chars(chain[0]) * PASSAGE_SHARE)
+    budget = int(budget_chars(chain[0], analysis.context_cap) * PASSAGE_SHARE)
     prompt = _theme_prompt(analysis)
+    sem = asyncio.Semaphore(settings.MAX_CONCURRENT_LLM_REQUESTS)  # par requête, toutes parties confondues
     done = 0
 
-    async def write_part(theme: dict[str, Any], part: list[Item], label: str) -> dict[str, Any]:
+    async def write_part(theme: dict[str, Any], part: list[Item], label: str) -> list[dict[str, Any]]:
         lines = "\n".join(i.line() for i in part)
         passages = _passages(analysis, part, budget - len(lines))
         user = (f"Thème : {theme['title']} — {theme['scope']}{label}\n\nÉléments extraits :\n{lines}"
                 + (f"\n\nPassages d'origine :\n{passages}" if passages else ""))
-        return svc._parse_json(await svc._call(analysis, chain, prompt, user))
+        try:
+            async with sem:
+                return [await svc._call_json(analysis, chain, prompt, user)]
+        except svc.ProviderUnavailable:
+            raise  # fournisseur indisponible : inutile de redécouper
+        except svc.AnalysisError:
+            if len(part) > 1:  # requête refusée ou réponse illisible : on redécoupe
+                half = len(part) // 2
+                return await write_part(theme, part[:half], label) + await write_part(theme, part[half:], label)
+            # Dernier recours : l'élément est repris tel qu'extrait, avec sa source ; rien n'est perdu.
+            return [{"theme": {"points": [_as_point(part[0])]}, "raw": True}]
 
     async def write_one(theme: dict[str, Any]) -> dict[str, Any]:
         nonlocal done
         lines = [i.line() for i in theme["items"]]
-        groups = _group(lines, budget)  # un thème très fourni est rédigé en plusieurs parties
-        parts = await asyncio.gather(*(
+        groups = _group(lines, budget, WRITE_MAX_ITEMS)  # un thème très fourni est rédigé en plusieurs parties
+        results = await asyncio.gather(*(
             write_part(theme, [theme["items"][i] for i in g], f" (partie {k + 1}/{len(groups)})" if len(groups) > 1 else "")
             for k, g in enumerate(groups)
         ))
+        parts = [p for r in results for p in r]
         merged = _merge_parts(theme, parts)
+        raw = sum(1 for p in parts if p.get("raw"))
+        if raw:
+            merged["summary"] = (merged["summary"] + " " if merged["summary"] else "") + (
+                f"({raw} élément{'s' if raw > 1 else ''} de ce thème n'ont pas pu être rédigés par le modèle : "
+                "ils sont repris tels qu'extraits des documents.)")
         done += 1
         analysis.progress = 60 + 30 * done / len(themes)
         analysis.step_notes[3] = f"Rédaction thème par thème depuis les passages d'origine ({done}/{len(themes)})"
         return merged
 
     analysis.step_notes[3] = f"Rédaction thème par thème depuis les passages d'origine (0/{len(themes)})"
-    return await _gather_limited([write_one(t) for t in themes])
+    return await asyncio.gather(*(write_one(t) for t in themes))
 
 
 def _merge_parts(theme: dict[str, Any], parts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -439,7 +513,7 @@ async def assemble(analysis: svc.Analysis, chain: list[svc.ModelSpec], title: st
         _lang(analysis.language),
         'Schéma JSON attendu : {"title": "titre court et explicite", "brief": "…"}',
     ])
-    head = svc._parse_json(await svc._call(analysis, chain, prompt, digest))
+    head = await svc._call_json(analysis, chain, prompt, digest)
     actions, seen = [], set()
     for n, t in enumerate(written, start=1):
         for a in t.pop("actions", []):
@@ -481,7 +555,7 @@ MERGE_PROMPT = (
 async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: svc.QuoteChecker) -> dict[str, Any]:
     svc._enter(analysis, 1)
     items, _, n_batches = await extract(analysis, chain, checker)
-    budget = budget_chars(chain[0])
+    budget = budget_chars(chain[0], analysis.context_cap)
     doc_names = [d.name for d in analysis.documents]
 
     # Dédoublonnage par paquets tant que la liste ne tient pas dans la fenêtre.
@@ -494,11 +568,11 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
         groups = _group(lines, int(budget * EXTRACT_SHARE))
         analysis.step_notes[1] = f"{n_batches} lots extraits · fusion des doublons (passe {rounds})"
         results = await _gather_limited([
-            svc._call(analysis, chain, MERGE_PROMPT, "\n".join(lines[i] for i in g)) for g in groups
+            svc._call_json(analysis, chain, MERGE_PROMPT, "\n".join(lines[i] for i in g)) for g in groups
         ])
         merged: list[Item] = []
         for raw_out in results:
-            for raw in svc._parse_json(raw_out).get("items") or []:
+            for raw in raw_out.get("items") or []:
                 if isinstance(raw, dict) and svc._s(raw.get("text")):
                     kind = svc._s(raw.get("kind")) or "fait"
                     text = svc._s(raw.get("text"))
@@ -516,16 +590,16 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
     corpus = ("Éléments extraits de l'ensemble du corpus (chacun avec son document et son repère d'origine) :\n"
               + "\n".join(i.line() for i in items))
     svc._enter(analysis, 2)
-    outline = svc._parse_json(await svc._with_creep(
-        analysis, 60, svc._call(analysis, chain, svc._outline_prompt("flow", analysis.level, analysis.language), corpus)))
+    outline = await svc._with_creep(
+        analysis, 60, svc._call_json(analysis, chain, svc._outline_prompt("flow", analysis.level, analysis.language), corpus))
     names = [svc._s(p.get("name")) for p in outline.get("phases") or [] if isinstance(p, dict) and svc._s(p.get("name"))]
     analysis.preview += names
     svc._enter(analysis, 3)
     user = ("Étapes identifiées lors de la première passe (traite-les toutes ; ajoutes-en si le corpus l'exige) :\n"
             + "\n".join(f"{i + 1}. {n}" for i, n in enumerate(names)) + "\n\n" + corpus)
-    data = svc._parse_json(await svc._with_creep(
+    data = await svc._with_creep(
         analysis, 90,
-        svc._call(analysis, chain, svc._full_prompt("flow", analysis.level, analysis.language, analysis.cite), user)))
+        svc._call_json(analysis, chain, svc._full_prompt("flow", analysis.level, analysis.language, analysis.cite), user))
     svc._enter(analysis, 4)
     data.setdefault("title", svc._s(outline.get("title")))
     missing = uncovered(items, data)
