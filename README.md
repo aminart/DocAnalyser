@@ -8,11 +8,19 @@ Quatre modes d'analyse : **Synthèse globale**, **Synthèse de transcription**, 
 
 ## 1. Démarrage
 
+### Sous Linux / macOS
 ```bash
 ./start.sh
 ```
 
-Le script lance le backend sur http://localhost:8000 puis le frontend sur **http://localhost:5173**. Ctrl+C arrête les deux.
+### Sous Windows
+Double-cliquez simplement sur **`start.bat`** (ou lancez `start.bat` dans un terminal).
+
+Le script vérifie automatiquement l'installation, installe les dépendances manquantes si nécessaire, lance le backend sur http://localhost:8000, le frontend sur **http://localhost:5173**, et ouvre directement votre navigateur.
+
+Pour tout arrêter d'un coup sous Windows, vous pouvez fermer les fenêtres ou exécuter **`stop.bat`**.
+
+Prérequis Windows : **Python 3.10+** (cochez « Add python.exe to PATH » à l'installation ; le lanceur `py` est utilisé en priorité) et **Node.js LTS**. Au premier lancement, `start.bat` crée `backend\.venv`, installe les dépendances et copie `backend\.env.example` en `backend\.env`. Le backend s'ouvre dans sa propre fenêtre, qui reste ouverte en cas d'erreur pour que vous puissiez lire le message. Si le port 5173 est déjà pris par un ancien lancement, exécutez `stop.bat` puis relancez `start.bat`.
 
 ### Première installation
 

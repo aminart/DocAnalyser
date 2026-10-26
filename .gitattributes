@@ -1,0 +1,6 @@
+# Scripts Windows : fins de ligne CRLF obligatoires pour cmd.exe (étiquettes goto)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Scripts Unix : LF
+*.sh text eol=lf
