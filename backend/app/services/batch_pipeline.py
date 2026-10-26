@@ -361,11 +361,21 @@ OTHER_POINTS = "Autres points"
 OTHER_SCOPE = "Éléments des documents non repris dans les thèmes précédents, tels qu'extraits"
 
 
+_NUMBER_WITH_WORD = re.compile(r"(\d+(?:[.,]\d+)?)(?:\s+([a-zà-ÿ]{2,}))?", re.I)
+
+
 def _key_facts(text: str) -> set[str]:
-    """Informations précises d'un élément : nombres et noms propres (hors début de phrase)."""
-    numbers = {n.replace(".", ",") for n in _NUMBER.findall(text)}
+    """Informations précises d'un élément : nombres (avec le mot qui les suit) et noms propres.
+
+    Un nombre seul (« 6 ») se retrouve presque toujours ailleurs dans une synthèse : on vérifie donc
+    « 6 particip… », « 35 euro… », « 26 ans » pour savoir si l'information elle-même a été reprise.
+    """
+    facts = set()
+    for number, word in _NUMBER_WITH_WORD.findall(text):
+        number = number.replace(".", ",")
+        facts.add(f"{number} {word[:5].lower()}" if word else number)
     names = {m.lower() for m in _PROPER.findall(text)}
-    return numbers | names
+    return facts | names
 
 
 _NON_CONTENT = {"location", "document", "documents", "sources", "id", "from", "to", "kind", "type", "mermaid"}
@@ -382,7 +392,9 @@ def _content_text(value: Any) -> str:
 
 def _present(fact: str, blob: str) -> bool:
     if fact[0].isdigit():  # nombre entier : « 20 » ne doit pas être trouvé dans « 2023 » ou « 120 »
-        return re.search(rf"(?<![\d,]){re.escape(fact)}(?![\d]|,\d)", blob) is not None
+        number, _, word = fact.partition(" ")
+        after = rf"\s+{re.escape(word)}" if word else r"(?![\d]|,\d)"
+        return re.search(rf"(?<![\d,]){re.escape(number)}{after}", blob) is not None
     return fact in blob
 
 

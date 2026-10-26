@@ -1,0 +1,19 @@
+Compte rendu — comité utilisateurs, 15 octobre
+
+1. Onboarding
+Les nouveaux clients reçoivent cinq e-mails le premier jour. Participante 7 : « Je ne savais plus lequel ouvrir en premier. » 8 participants sur 12 demandent un parcours guidé.
+
+2. Suivi des demandes
+Aucun statut n'est affiché après l'envoi des justificatifs. Participant 3 : « Ce qui m'inquiète, c'est de ne pas savoir pourquoi j'attends. » 5 participants ont relancé le support.
+
+3. Outils des conseillers
+La double saisie entre deux outils prend environ 20 minutes par rendez-vous. Conseiller de Lyon : « Je passe plus de temps à remplir l'outil qu'à parler au client. »
+
+4. Notifications
+Les alertes promotionnelles se mêlent aux alertes importantes ; 6 participants ont tout désactivé et ont manqué une échéance.
+
+5. Application mobile
+Les sessions expirent après 5 minutes ; les formulaires longs sont perdus. La recherche ne trouve pas les documents par contenu.
+
+6. Accessibilité (point remonté en fin de séance, jugé prioritaire par le comité)
+Deux participants malvoyants ne peuvent pas signer le contrat : le module de signature électronique n'est pas compatible avec les lecteurs d'écran. Participant 11 : « Je dois demander à mon fils de signer à ma place. » Le comité demande un correctif avant la fin de l'année, pour des raisons de conformité légale.

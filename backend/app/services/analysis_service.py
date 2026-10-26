@@ -21,7 +21,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 import litellm
 
@@ -206,7 +206,11 @@ def _openai_client(prov: ProviderConf) -> Any:
     return _CLIENTS[cache_key]
 
 
-async def _complete(spec: ModelSpec, system_prompt: str, user_content: str, want_json: bool = True) -> str:
+async def _complete(
+    spec: ModelSpec, system_prompt: str, user_content: str, want_json: bool = True,
+    on_text: Callable[[str], None] | None = None,
+) -> str:
+    """Appel au modèle. Avec on_text, la réponse est reçue en streaming et on_text reçoit le texte accumulé."""
     prov = spec.provider
     if prov.kind == "openai":
         if not prov.api_base:
@@ -238,12 +242,25 @@ async def _complete(spec: ModelSpec, system_prompt: str, user_content: str, want
             messages=messages,
             num_retries=2,
             timeout=600,
+            stream=on_text is not None,
             **kwargs,
         )
-        choice = response.choices[0]
-        chunk = choice.message.content or ""
+        if on_text is None:
+            choice = response.choices[0]
+            chunk, finish = choice.message.content or "", choice.finish_reason
+        else:
+            pieces, finish = [], None
+            async for event in response:
+                if not event.choices:
+                    continue
+                delta = event.choices[0].delta.content or ""
+                if delta:
+                    pieces.append(delta)
+                    on_text("".join(parts) + "".join(pieces))
+                finish = event.choices[0].finish_reason or finish
+            chunk = "".join(pieces)
         parts.append(chunk)
-        if choice.finish_reason != "length" or not chunk:
+        if finish != "length" or not chunk:
             break
         # Réponse coupée faute de place : on demande la suite pour ne rien perdre de la fin.
         messages += [
@@ -408,19 +425,29 @@ COMPLETENESS_RULE = (
     "Ne supprime jamais un élément important pour raccourcir ; le niveau ne change que la profondeur de rédaction."
 )
 
+# Découpage en points : une information distincte par point, chacune avec sa source.
+# Sans cette règle, le modèle fusionne plusieurs faits dans un seul long point.
+GRANULARITY_RULE = (
+    "Découpage : un point clé correspond à une information distincte (un fait, un chiffre, un constat, une "
+    "décision, une attente ou un désaccord), avec sa propre source. Le nombre de points d'un thème dépend "
+    "uniquement de la richesse du corpus sur ce thème."
+)
+
 LEVEL_GUIDANCE: dict[str, str] = {
     "synth": (
-        "Niveau synthétique : rédaction concise. Pour chaque thème, les points clés essentiels ; "
+        GRANULARITY_RULE + " Niveau synthétique : regroupe seulement les informations qui disent la même chose ; "
         "chaque point tient en une phrase courte. Résumé du thème en 1 à 2 phrases. "
         "Verbatim et nuance seulement s'ils sont marquants."
     ),
     "detail": (
-        "Niveau détaillé : chaque point clé est développé en 2 à 3 phrases avec un exemple tiré du corpus. "
+        GRANULARITY_RULE + " Niveau détaillé : ne fusionne jamais deux informations distinctes dans un même point ; "
+        "chaque point est développé en 2 à 3 phrases avec un exemple tiré du corpus. "
         "Un verbatim marquant par thème ; nuance ou divergence quand le corpus en montre une."
     ),
     "deep": (
-        "Niveau très détaillé : chaque point clé est argumenté (3 à 5 phrases), avec exemples, chiffres et contexte ; "
-        "décompose les thèmes en points fins. Pour chaque thème : verbatim, nuance ou point de divergence, "
+        GRANULARITY_RULE + " Niveau très détaillé : un point par information distincte, et décompose aussi les "
+        "causes, conséquences et cas particuliers en points séparés ; chaque point est argumenté (3 à 5 phrases) "
+        "avec exemples, chiffres et contexte. Pour chaque thème : verbatim, nuance ou point de divergence, "
         "sources précises pour chaque point."
     ),
 }
@@ -782,7 +809,10 @@ async def _with_creep(analysis: Analysis, end: float, coro):
         creeper.cancel()
 
 
-async def _call(analysis: Analysis, chain: list[ModelSpec], system_prompt: str, user: str, want_json: bool = True) -> str:
+async def _call(
+    analysis: Analysis, chain: list[ModelSpec], system_prompt: str, user: str, want_json: bool = True,
+    on_text: Callable[[str], None] | None = None,
+) -> str:
     """Appelle le modèle actif ; bascule sur le suivant de la chaîne en cas de quota ou de surcharge."""
     start = next((i for i, m in enumerate(chain) if m.id == analysis.active_model_id), 0)
     last: Exception | None = None
@@ -791,7 +821,7 @@ async def _call(analysis: Analysis, chain: list[ModelSpec], system_prompt: str, 
             if wait:
                 await asyncio.sleep(wait)  # surcharge passagère : on patiente avant de réessayer
             try:
-                out = await _complete(spec, system_prompt, user, want_json)
+                out = await _complete(spec, system_prompt, user, want_json, on_text)
                 analysis.active_model_id = spec.id
                 return out
             except litellm.RateLimitError as exc:
@@ -869,35 +899,66 @@ def _flag_sources(result: dict[str, Any], documents: list[StoredDocument]) -> No
                 src["found"] = bool(doc and src["location"] and location_exists(doc, src["location"]))
 
 
+_JSON_STR = r'"((?:[^"\\]|\\.)*)"'
+
+
+def _streamed_names(text: str, mode: str) -> tuple[str, list[str]]:
+    """Titre de l'étude et noms des thèmes (ou étapes) déjà complets dans une réponse JSON en cours d'écriture."""
+    def decode(raw: str) -> str:
+        try:
+            return json.loads(f'"{raw}"')
+        except json.JSONDecodeError:
+            return raw
+
+    title_match = re.search(r'"title"\s*:\s*' + _JSON_STR, text)
+    title = decode(title_match.group(1)) if title_match else ""
+    key, field_name = ('"phases"', "name") if mode == "flow" else ('"themes"', "title")
+    start = text.find(key)
+    if start < 0:
+        return title, []
+    segment = text[start:]
+    end = segment.find('"actions"' if mode != "flow" else '"flow"')
+    if end > 0:
+        segment = segment[:end]
+    names = [decode(n) for n in re.findall(rf'"{field_name}"\s*:\s*' + _JSON_STR, segment)]
+    return title, [n.strip() for n in names if n.strip()]
+
+
 async def _run_single_pass(analysis: Analysis, chain: list[ModelSpec], corpus: str) -> dict[str, Any]:
-    """Le corpus tient dans la fenêtre du modèle : repérage des thèmes puis rédaction, sur le texte intégral."""
+    """Le corpus tient dans la fenêtre du modèle : un seul appel sur le texte intégral.
+
+    La réponse arrive en streaming : les thèmes s'affichent dans l'aperçu dès que le modèle les écrit,
+    et l'étape « Rédaction » commence au premier thème.
+    """
     _enter(analysis, 1)
     analysis.progress = 30
-
-    # 3. Thèmes / étapes
     _enter(analysis, 2)
-    outline_raw = await _with_creep(
-        analysis, 60,
-        _call(analysis, chain, _outline_prompt(analysis.mode, analysis.level, analysis.language), corpus),
-    )
-    outline = _parse_json(outline_raw)
-    analysis.title = str(outline.get("title") or "").strip()
-    items = outline.get("phases" if analysis.mode == "flow" else "themes") or []
-    names = [str(i.get("name") or i.get("title") or "").strip() for i in items if isinstance(i, dict)]
-    for name in [n for n in names if n]:
-        analysis.preview.append(name)
-        await asyncio.sleep(0.35)
 
-    # 4. Rédaction
+    def on_text(text: str) -> None:
+        title, names = _streamed_names(text, analysis.mode)
+        if title and not analysis.title:
+            analysis.title = title
+        if names:
+            if analysis.step < 3:
+                _enter(analysis, 3)
+            analysis.preview = names
+
+    async def creep() -> None:
+        while True:
+            await asyncio.sleep(0.5)
+            target = 59 if analysis.step < 3 else 89
+            analysis.progress = min(target, analysis.progress + max(0.05, (target - analysis.progress) * 0.03))
+
+    creeper = asyncio.create_task(creep())
+    try:
+        raw = await _call(
+            analysis, chain, _full_prompt(analysis.mode, analysis.level, analysis.language, analysis.cite),
+            "Corpus :\n\n" + corpus, on_text=on_text,
+        )
+    finally:
+        creeper.cancel()
     _enter(analysis, 3)
-    plan_label = "Étapes identifiées" if analysis.mode == "flow" else "Thèmes identifiés"
-    user = f"{plan_label} lors de la première passe (traite-les tous ; ajoutes-en si le corpus l'exige) :\n" + \
-        "\n".join(f"{i + 1}. {n}" for i, n in enumerate(names)) + "\n\nCorpus :\n\n" + corpus
-    full_raw = await _with_creep(
-        analysis, 90,
-        _call(analysis, chain, _full_prompt(analysis.mode, analysis.level, analysis.language, analysis.cite), user),
-    )
-    return _parse_json(full_raw)
+    return _parse_json(raw)
 
 
 # ---------------------------------------------------------------------------

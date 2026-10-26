@@ -73,7 +73,27 @@ La synthèse doit pouvoir remplacer la lecture des documents. L'application appl
 - **Pas de troncature** : une réponse coupée faute de place est reprise automatiquement là où le modèle s'est arrêté.
 - **Corpus volumineux** (plus grand que la fenêtre du modèle, fréquent avec Mistral Medium ou Small) : analyse automatique par lots. Chaque lot donne des éléments sourcés (faits, chiffres, décisions, verbatims…) recopiés avec leur repère. Ils sont ensuite classés en thèmes ; un élément non classé va dans « Autres points », il n'est jamais perdu. Enfin, chaque thème est rédigé à partir de ses éléments et des passages d'origine. Réglez `CUSTOM_LLM_CONTEXT_TOKENS` sur la fenêtre réelle du modèle.
 
-## 4. API
+## 4. Tests de fidélité
+
+À lancer après toute modification des consignes, du code d'analyse ou du modèle utilisé, pour vérifier que rien n'a régressé.
+
+```bash
+cd backend
+.venv/bin/python -m pip install -r requirements-dev.txt   # une seule fois
+.venv/bin/python -m pytest                                # tests rapides, sans modèle (quelques secondes)
+RUN_LLM_TESTS=1 .venv/bin/python -m pytest -m llm -v      # fidélité avec un vrai modèle (payant, quelques minutes)
+```
+
+Sous Windows, remplacez `.venv/bin/python` par `.venv\Scripts\python`. Pour tester un modèle précis, ajoutez par exemple `TEST_MODEL="CUSTOM_LLM:mistral-medium-latest"` ; sinon, le premier modèle configuré est utilisé.
+
+- **Tests rapides** : lecture de chaque format (pages scannées signalées, tableaux Word à leur place, formes PowerPoint groupées, CSV Windows-1252), vérification des verbatims, résolution des sources, contrôle de couverture, graphe de flux, aperçu en streaming, historique après redémarrage.
+- **Tests avec modèle**, sur les documents de `backend/tests/fixtures/` :
+  - aux trois niveaux, aucune information clé perdue, y compris en fin de document ;
+  - tous les documents exploités, aucun verbatim inventé, une source par point, des repères existants ;
+  - un parcours reconstitué avec ses abandons ;
+  - un corpus volumineux analysé par lots sans perte (16 faits uniques).
+
+## 5. API
 
 - `GET /api/v2/models` : modèles déclarés et leur disponibilité
 - `POST /api/v2/documents` : import et lecture d'un fichier (PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT)
@@ -84,6 +104,6 @@ La synthèse doit pouvoir remplacer la lecture des documents. L'application appl
 - `GET /api/v2/analyses/{id}/source?document=&location=&text=` : passage d'origine d'une source, lignes concernées surlignées
 - `GET /api/v2/analyses/{id}/export?format=md|docx|pdf`
 
-## 5. Historique et données
+## 6. Historique et données
 
 Documents importés et analyses sont enregistrés dans `backend/data/` (base SQLite `analyses.db` et fichiers d'origine). Ce dossier est exclu de git, car il contient des données confidentielles. L'écran **Historique** permet de rouvrir ou de supprimer une analyse. Supprimer une analyse efface aussi ses documents s'ils ne servent à aucune autre. Un document importé mais jamais analysé est effacé au bout de 24 h. Une analyse en cours lors d'un arrêt du backend est marquée comme interrompue au redémarrage.

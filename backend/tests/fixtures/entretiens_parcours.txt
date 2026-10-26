@@ -1,0 +1,24 @@
+Synthèse des entretiens — parcours d'ouverture de compte (12 participants)
+
+Points d'entrée
+- 7 participants arrivent depuis le simulateur de tarif en ligne ; 5 viennent d'un conseiller en agence qui leur envoie un lien par SMS.
+- Participante 2 : « Le conseiller m'a envoyé un lien, j'ai cru que je devais tout refaire depuis le début. »
+
+Identification
+- Sur l'écran d'accueil, les participants doivent choisir : « J'ai déjà un espace client » ou « Je suis nouveau ».
+- Les clients existants se connectent ; 3 d'entre eux ont oublié leur mot de passe et passent par la réinitialisation par e-mail, puis reviennent à l'écran de connexion.
+- Participant 9 : « J'ai réinitialisé deux fois mon mot de passe avant que ça marche. »
+- Les nouveaux clients remplissent le formulaire d'identité.
+
+Justificatifs
+- Tous doivent ensuite déposer une pièce d'identité et un justificatif de domicile.
+- Si le document est refusé (photo floue, document expiré), l'utilisateur doit le redéposer : 4 participants ont dû recommencer au moins une fois.
+- 2 participants ont abandonné à cette étape après expiration de la session : « J'ai tout perdu, j'ai laissé tomber pour la journée. »
+
+Vérification
+- Après dépôt, un délai de 24 à 72 h. Sans nouvelles, 5 participants ont contacté le support ; 1 a abandonné et ouvert un compte ailleurs.
+- Les participants passés par un conseiller en agence peuvent sauter la vérification à distance : le conseiller valide directement le dossier.
+
+Signature et activation
+- Signature électronique du contrat, puis activation de l'application mobile.
+- Objectif atteint : premier virement réalisé depuis l'application (9 participants sur 12).
