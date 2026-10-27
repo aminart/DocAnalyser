@@ -24,10 +24,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
 
-import litellm
 
 from app.core.config import settings
-from app.services import store
+from app.services import llm_client, store
 from app.services.parser_service import AnchoredTextBlock, MultiFormatDocumentParser
 
 Mode = Literal["global", "transcript", "notes", "flow"]
@@ -134,7 +133,8 @@ def providers() -> list[ProviderConf]:
     ]
     for key, kind, name, api_key, ca, ctx, models in tests:
         if settings._is_key_set(api_key or ""):
-            out.append(ProviderConf(key, kind, name, api_key.strip(), "", (ca or "").strip(), ctx, _names(models),
+            base = llm_client.GEMINI_BASE if kind == "gemini" else llm_client.ANTHROPIC_BASE
+            out.append(ProviderConf(key, kind, name, api_key.strip(), base, (ca or "").strip(), ctx, _names(models),
                                     max_output_tokens=32_000))
     return out
 
@@ -201,49 +201,16 @@ def get_model(model_id: str) -> ModelSpec:
     raise AnalysisError(f"Modèle inconnu : {model_id} (vérifiez *_AVAILABLE_MODELS dans backend/.env)")
 
 
-_CLIENTS: dict[tuple[str, str], Any] = {}
-
-
-def _openai_client(prov: ProviderConf) -> Any:
-    """Client dédié quand un certificat d'entreprise (CA bundle) est requis pour ce fournisseur."""
-    if not prov.ca_bundle:
-        return None
-    cache_key = (prov.api_base, prov.ca_bundle)
-    if cache_key not in _CLIENTS:
-        import httpx
-        from openai import AsyncOpenAI
-
-        _CLIENTS[cache_key] = AsyncOpenAI(
-            api_key=prov.api_key or "not-needed",
-            base_url=prov.api_base,
-            http_client=httpx.AsyncClient(verify=prov.ca_bundle, timeout=600),
-        )
-    return _CLIENTS[cache_key]
-
-
 async def _complete(
     spec: ModelSpec, system_prompt: str, user_content: str, want_json: bool = True,
     on_text: Callable[[str], None] | None = None,
 ) -> str:
     """Appel au modèle. Avec on_text, la réponse est reçue en streaming et on_text reçoit le texte accumulé."""
     prov = spec.provider
-    if prov.kind == "openai":
-        if not prov.api_base:
-            raise AnalysisError(f"{prov.key}_API_BASE n'est pas renseignée dans backend/.env")
-        kwargs: dict[str, Any] = {"api_base": prov.api_base, "api_key": prov.api_key or "not-needed"}
-        client = _openai_client(prov)
-        if client is not None:
-            kwargs["client"] = client
-    else:
-        kwargs = {"api_key": prov.api_key}
-        if prov.ca_bundle:
-            kwargs["ssl_verify"] = prov.ca_bundle
-    # Claude ne gère pas response_format : le prompt impose déjà un JSON strict.
-    if want_json and prov.kind != "anthropic":
-        kwargs["response_format"] = {"type": "json_object"}
-
-    if prov.max_output_tokens:
-        kwargs["max_tokens"] = prov.max_output_tokens
+    if not prov.api_base:
+        raise AnalysisError(f"{prov.key}_API_BASE n'est pas renseignée dans backend/.env")
+    # Claude ne gère pas la sortie JSON imposée : la consigne exige déjà un JSON strict.
+    json_mode = want_json and prov.kind != "anthropic"
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system_prompt},
@@ -251,29 +218,12 @@ async def _complete(
     ]
     parts: list[str] = []
     for _ in range(1 + MAX_CONTINUATIONS):
-        response = await litellm.acompletion(
-            model=f"{prov.kind}/{spec.name}",
-            temperature=TEMPERATURE,
-            messages=messages,
-            num_retries=2,
-            timeout=600,
-            stream=on_text is not None,
-            **kwargs,
+        chunk, finish = await llm_client.chat(
+            base_url=prov.api_base, api_key=prov.api_key, model=spec.name, messages=messages,
+            temperature=TEMPERATURE, max_tokens=prov.max_output_tokens, json_mode=json_mode,
+            ca_bundle=prov.ca_bundle,
+            on_delta=(lambda text, done="".join(parts): on_text(done + text)) if on_text else None,
         )
-        if on_text is None:
-            choice = response.choices[0]
-            chunk, finish = choice.message.content or "", choice.finish_reason
-        else:
-            pieces, finish = [], None
-            async for event in response:
-                if not event.choices:
-                    continue
-                delta = event.choices[0].delta.content or ""
-                if delta:
-                    pieces.append(delta)
-                    on_text("".join(parts) + "".join(pieces))
-                finish = event.choices[0].finish_reason or finish
-            chunk = "".join(pieces)
         parts.append(chunk)
         if finish != "length" or not chunk:
             break
@@ -282,7 +232,7 @@ async def _complete(
             {"role": "assistant", "content": chunk},
             {"role": "user", "content": CONTINUE_PROMPT},
         ]
-        kwargs.pop("response_format", None)  # la suite n'est pas un objet JSON complet
+        json_mode = False  # la suite n'est pas un objet JSON complet
     else:
         raise AnalysisError(
             f"La synthèse produite par {spec.name} dépasse sa longueur maximale de réponse, même en plusieurs parties. "
@@ -295,28 +245,27 @@ async def _complete(
     return content
 
 
-_RETRYABLE = (litellm.RateLimitError, litellm.ServiceUnavailableError, litellm.InternalServerError, litellm.Timeout)
+_RETRYABLE = llm_client.RETRYABLE
 RETRY_WAITS = (5, 15, 40)  # secondes, en cas de surcharge du fournisseur
 
 
 def _friendly_error(spec: ModelSpec, exc: Exception) -> str:
-    if isinstance(exc, litellm.RateLimitError):
+    reason = str(exc)[:300]
+    if isinstance(exc, llm_client.RateLimitError):
         return (f"Quota du fournisseur dépassé pour {spec.name} (limite atteinte). "
                 "Réessayez plus tard ou choisissez un autre modèle.")
-    if isinstance(exc, litellm.AuthenticationError):
+    if isinstance(exc, llm_client.AuthenticationError):
         return f"La clé API du fournisseur « {spec.provider.name} » a été refusée : vérifiez {spec.provider.key}_API_KEY dans backend/.env."
-    if isinstance(exc, litellm.NotFoundError):
-        return f"Le modèle {spec.name} n'est pas disponible chez le fournisseur."
-    if isinstance(exc, (litellm.ServiceUnavailableError, litellm.InternalServerError)):
-        return (f"Le fournisseur de {spec.name} est momentanément surchargé et n'a pas répondu malgré plusieurs essais. "
-                "Relancez l'analyse dans quelques minutes.")
-    if isinstance(exc, litellm.Timeout):
+    if isinstance(exc, llm_client.NotFoundError):
+        return f"Le modèle {spec.name} n'est pas disponible chez le fournisseur ({reason})."
+    if isinstance(exc, llm_client.ServiceUnavailableError):
+        return (f"Le fournisseur de {spec.name} est momentanément indisponible et n'a pas répondu malgré plusieurs "
+                f"essais ({reason}). Relancez l'analyse dans quelques minutes.")
+    if isinstance(exc, llm_client.TimeoutError):
         return f"Le modèle {spec.name} n'a pas répondu à temps. Réessayez avec un niveau moins détaillé."
-    if isinstance(exc, litellm.ContextWindowExceededError):
-        return f"Le corpus dépasse la fenêtre de contexte de {spec.name}."
-    detail = re.search(r'"message"\s*:\s*"([^"]{1,300})"', str(exc))
-    reason = detail.group(1) if detail else str(exc)[:300]
-    if isinstance(exc, litellm.BadRequestError):
+    if isinstance(exc, llm_client.ContextWindowExceededError):
+        return f"Le corpus dépasse la fenêtre de contexte de {spec.name} : réduisez MAX_REQUEST_TOKENS ou CONTEXT_TOKENS."
+    if isinstance(exc, llm_client.BadRequestError):
         return f"Le fournisseur de {spec.name} a refusé une requête : {reason}"
     return f"Échec de l'appel au modèle {spec.name} : {reason}"
 
@@ -864,11 +813,14 @@ async def _call(
                 out = await _complete(spec, system_prompt, user, want_json, on_text)
                 analysis.active_model_id = spec.id
                 return out
-            except litellm.RateLimitError as exc:
+            except llm_client.RateLimitError as exc:
                 last = exc
                 if re.search(r"per ?day|PerDay|daily", str(exc), re.I):
                     break  # quota journalier épuisé : inutile d'insister, modèle suivant
                 # limite par minute : elle se lève d'elle-même, on réessaie après une pause
+            except llm_client.TimeoutError as exc:
+                last = exc
+                break  # modèle bloqué : on passe directement au suivant plutôt que de l'attendre à nouveau
             except _RETRYABLE as exc:
                 last = exc
             except AnalysisError:

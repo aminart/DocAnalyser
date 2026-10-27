@@ -1,10 +1,8 @@
 """Repli automatique : un gros corpus refusé d'un bloc par le fournisseur est analysé par lots."""
 import asyncio
 
-import litellm
-
 from app.services import analysis_service as svc
-from app.services import batch_pipeline
+from app.services import batch_pipeline, llm_client
 
 
 def test_gros_corpus_refuse_d_un_bloc_bascule_en_lots(fixtures_dir, monkeypatch):
@@ -13,7 +11,7 @@ def test_gros_corpus_refuse_d_un_bloc_bascule_en_lots(fixtures_dir, monkeypatch)
     async def fake_complete(spec, system_prompt, user, want_json=True, on_text=None):
         calls.append(len(user))
         # Le fournisseur refuse la requête démesurée (cas d'une clé gratuite limitée par minute).
-        raise litellm.ServiceUnavailableError("overloaded", llm_provider="gemini", model=spec.name)
+        raise llm_client.ServiceUnavailableError("overloaded", 503)
 
     async def fake_batches(analysis, chain, checker):
         assert analysis.batched and analysis.context_cap == svc.FALLBACK_REQUEST_TOKENS

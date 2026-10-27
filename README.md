@@ -22,6 +22,8 @@ Pour tout arrêter d'un coup sous Windows, vous pouvez fermer les fenêtres ou e
 
 Prérequis Windows : **Python 3.10+** (cochez « Add python.exe to PATH » à l'installation ; le lanceur `py` est utilisé en priorité) et **Node.js LTS**. Au premier lancement, `start.bat` crée `backend\.venv`, installe les dépendances et copie `backend\.env.example` en `backend\.env`. Le backend s'ouvre dans sa propre fenêtre, qui reste ouverte en cas d'erreur pour que vous puissiez lire le message. Si le port 5173 est déjà pris par un ancien lancement, exécutez `stop.bat` puis relancez `start.bat`.
 
+**Réseau d'entreprise** : l'application n'utilise que des bibliothèques Python courantes (FastAPI, httpx, PyMuPDF, python-docx…). Les appels aux modèles passent par un petit client interne compatible OpenAI, sans dépendance spécialisée souvent bloquée par les proxys. Si `pip install` échoue quand même avec une erreur 403 ou de certificat, c'est le dépôt de paquets de l'entreprise qui refuse le téléchargement : demandez à votre service informatique l'adresse du miroir PyPI interne, puis configurez-le avec `pip config set global.index-url <adresse>`.
+
 ### Première installation
 
 ```bash
