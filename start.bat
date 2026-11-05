@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
-title Analyse documentaire
+title DocAnalyser
 
 rem Le backend sert aussi l'interface compilee : une seule fenetre, une seule adresse.
 rem Node.js n'est necessaire que pour compiler l'interface, absente ou plus ancienne que ses sources.
@@ -14,7 +14,7 @@ set "ROOT=%~dp0"
 set "VENV_PY=%ROOT%backend\.venv\Scripts\python.exe"
 
 echo ============================================================
-echo   Lancement de l'application Analyse documentaire
+echo   Lancement de l'application DocAnalyser
 echo ============================================================
 echo.
 
@@ -81,7 +81,7 @@ echo [OK] Interface prete : frontend\dist
 rem ---------------------------------------------------------------- 4. Lancement
 echo.
 echo ============================================================
-echo   Analyse documentaire : http://127.0.0.1:8020
+echo   DocAnalyser : http://127.0.0.1:8020
 echo   Gardez cette fenetre ouverte ; fermez-la ou faites Ctrl+C pour arreter.
 echo ============================================================
 echo.
@@ -127,7 +127,7 @@ goto :fail
 
 :port_busy
 echo [ERREUR] Le port 8020 est deja utilise par une autre application.
-echo Si c'est un ancien lancement d'Analyse documentaire, lancez stop.bat puis relancez start.bat.
+echo Si c'est un ancien lancement de DocAnalyser, lancez stop.bat puis relancez start.bat.
 goto :fail
 
 :fail

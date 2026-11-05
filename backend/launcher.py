@@ -1,4 +1,4 @@
-"""Lance Analyse documentaire : python backend/launcher.py [--port 8020] [--no-browser] [--version] [--reload]
+"""Lance DocAnalyser : python backend/launcher.py [--port 8020] [--no-browser] [--version] [--reload]
 
 Le backend sert aussi l'interface compilée (frontend/dist) : une seule adresse, http://127.0.0.1:8020.
 
@@ -6,7 +6,7 @@ Contrat commun aux applications de la suite (lancement par le portail) :
 - --port N : port imposé ; s'il est pris par une autre application, échec explicite (code 2) ;
 - --no-browser : ne pas ouvrir le navigateur ;
 - --version : affiche la version ;
-- GET /health : {"status": "ok", "app": "analyse-documentaire", "name": ..., "version": ...}.
+- GET /health : {"status": "ok", "app": "docanalyser", "name": ..., "version": ...}.
 """
 from __future__ import annotations
 

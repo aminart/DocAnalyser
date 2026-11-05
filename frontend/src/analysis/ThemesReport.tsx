@@ -71,8 +71,8 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
           className="flex min-w-0 max-w-[300px] flex-[1_1_240px] flex-col gap-6 lg:sticky lg:top-6"
         >
           <nav className="flex flex-col gap-1">
-            <span className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.08em] text-body">Sommaire</span>
-            <a href="#bref" onClick={scrollTo('bref')} className="flex items-center gap-2.5 rounded-lg px-3 py-[9px] font-semibold text-ink no-underline hover:bg-white">
+            <span className="px-3 pb-2 text-xs font-semibold uppercase tracking-[0.08em] text-ink-body">Sommaire</span>
+            <a href="#bref" onClick={scrollTo('bref')} className="flex items-center gap-2.5 rounded-lg px-3 py-[9px] font-semibold text-ink no-underline hover:bg-surface">
               En bref
             </a>
             {themes.map((t) => (
@@ -80,7 +80,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                 key={t.anchor}
                 href={`#${t.anchor}`}
                 onClick={scrollTo(t.anchor)}
-                className="flex items-center gap-2.5 rounded-lg px-3 py-[9px] text-ink no-underline hover:bg-white"
+                className="flex items-center gap-2.5 rounded-lg px-3 py-[9px] text-ink no-underline hover:bg-surface"
               >
                 <span
                   className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-xs font-bold"
@@ -89,17 +89,17 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                   {t.num}
                 </span>
                 <span className="flex-grow font-medium leading-[1.3]">{t.title}</span>
-                <span className="text-xs text-muted">{t.points.length}</span>
+                <span className="text-xs text-ink-muted">{t.points.length}</span>
               </a>
             ))}
             {result.actions.length > 0 && (
-              <a href="#actions" onClick={scrollTo('actions')} className="flex items-center gap-2.5 rounded-lg px-3 py-[9px] font-semibold text-ink no-underline hover:bg-white">
+              <a href="#actions" onClick={scrollTo('actions')} className="flex items-center gap-2.5 rounded-lg px-3 py-[9px] font-semibold text-ink no-underline hover:bg-surface">
                 {actionsLabel}
               </a>
             )}
           </nav>
           <div className="flex flex-col gap-2.5 border-t border-line pt-5">
-            <span className="px-3 text-xs font-semibold uppercase tracking-[0.08em] text-body">Sources</span>
+            <span className="px-3 text-xs font-semibold uppercase tracking-[0.08em] text-ink-body">Sources</span>
             {result.sources.map((s) => {
               const doc = analysis.documents.find((d) => d.name === s.document);
               const unused = analysis.cite && s.citations === 0 && !result.themes.some((t) => t.documents.includes(s.document));
@@ -108,11 +108,11 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                   <div className="flex items-center gap-2.5" title={s.document}>
                     <FileBadge ext={extOf(s.document)} size="sm" />
                     <span className="min-w-0 flex-grow truncate">{s.document}</span>
-                    {analysis.cite && <span className="text-muted">{s.citations} cit.</span>}
+                    {analysis.cite && <span className="text-ink-muted">{s.citations} cit.</span>}
                   </div>
-                  {unused && <span className="pl-8 text-xs text-[#8A3E0A]">Aucun élément retenu de ce document</span>}
+                  {unused && <span className="pl-8 text-xs text-warning-text">Aucun élément retenu de ce document</span>}
                   {doc?.warnings.map((w) => (
-                    <span key={w} className="pl-8 text-xs text-[#8A3E0A]">
+                    <span key={w} className="pl-8 text-xs text-warning-text">
                       {w}
                     </span>
                   ))}
@@ -130,17 +130,17 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
           <section
             id="bref"
             aria-labelledby="bref-h"
-            className="flex scroll-mt-6 flex-col gap-[22px] rounded-2xl bg-ink px-9 py-8 text-white"
+            className="flex scroll-mt-6 flex-col gap-[22px] rounded-2xl bg-[#15171C] px-9 py-8 text-white dark:border dark:border-line dark:bg-surface-2"
           >
             <h2 id="bref-h" className="m-0 text-[13px] font-semibold uppercase tracking-[0.1em] text-[#C9CDF5]">
               En bref
             </h2>
-            <p className="m-0 font-serif text-2xl font-normal leading-[1.45]">
+            <p className="m-0 text-2xl font-normal leading-[1.45]">
               <Emphasis text={result.brief} />
             </p>
             <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(150px,1fr))]">
               {stats.map(([value, label]) => (
-                <div key={label} className="rounded-xl border border-[#343845] px-4 py-3.5">
+                <div key={label} className="rounded-xl border border-[#343845] dark:border-line-strong px-4 py-3.5">
                   <div className="text-[26px] font-bold">{value}</div>
                   <div className="text-[13px] text-[#C2C6D0]">{label}</div>
                 </div>
@@ -155,7 +155,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                 key={t.anchor}
                 href={`#${t.anchor}`}
                 onClick={scrollTo(t.anchor)}
-                className="flex flex-col gap-2.5 rounded-[14px] border border-line bg-white p-[18px] text-ink no-underline transition hover:border-line-strong"
+                className="flex flex-col gap-2.5 rounded-[14px] border border-line bg-surface p-[18px] text-ink no-underline transition hover:border-line-strong"
               >
                 <span className="flex items-center justify-between">
                   <span
@@ -164,7 +164,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                   >
                     {t.num}
                   </span>
-                  <span className="text-xs text-muted">{t.presence}</span>
+                  <span className="text-xs text-ink-muted">{t.presence}</span>
                 </span>
                 <span className="text-[15px] font-bold leading-[1.3]">{t.title}</span>
                 <span className="flex gap-[3px]" aria-label={`Présent dans ${t.documents.length} documents sur ${nDocs}`}>
@@ -172,7 +172,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                     <span
                       key={d.id}
                       className="h-[5px] flex-grow rounded-[3px]"
-                      style={{ background: k < t.documents.length ? t.ink : 'var(--ad-line)' }}
+                      style={{ background: k < t.documents.length ? t.ink : 'var(--nn-line)' }}
                     />
                   ))}
                 </span>
@@ -186,7 +186,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
               key={t.anchor}
               id={t.anchor}
               aria-labelledby={`${t.anchor}-h`}
-              className="scroll-mt-6 overflow-hidden rounded-2xl border border-line bg-white"
+              className="scroll-mt-6 overflow-hidden rounded-2xl border border-line bg-surface"
             >
               <div className="h-1" style={{ background: t.ink }} />
               <div className="flex items-start gap-4 px-9 pb-2 pt-7">
@@ -200,7 +200,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                   <h2 id={`${t.anchor}-h`} className="m-0 text-2xl font-bold leading-[1.25] tracking-[-0.01em]">
                     {t.title}
                   </h2>
-                  <span className="text-[13px] text-muted">
+                  <span className="text-[13px] text-ink-muted">
                     {t.presence} · {t.points.length} point{t.points.length > 1 ? 's' : ''} clé{t.points.length > 1 ? 's' : ''}
                   </span>
                 </div>
@@ -209,7 +209,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                   onClick={() => setClosed(t.open ? [...closed, i] : closed.filter((x) => x !== i))}
                   aria-expanded={t.open}
                   aria-label={t.open ? 'Réduire le thème' : 'Déplier le thème'}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-line bg-white text-chip-ink hover:bg-page"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-line bg-surface text-ink-muted hover:bg-bg"
                 >
                   <Icons.chevron
                     size={18}
@@ -220,7 +220,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
 
               {t.open && (
                 <div className="flex flex-col gap-6 px-9 pb-8 pt-2 sm:pl-[92px]">
-                  <p className="m-0 font-serif text-[19px] leading-[1.6] text-[#22252D]">{t.summary}</p>
+                  <p className="m-0 text-[19px] leading-[1.6] text-ink">{t.summary}</p>
 
                   <ul className="m-0 flex list-none flex-col gap-4 p-0">
                     {t.points.map((p, k) => (
@@ -229,7 +229,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                         <div className="flex flex-col gap-1.5">
                           <span className="text-base font-bold leading-[1.4]">{p.lead}</span>
                           {p.body && (
-                            <span className="font-serif text-[17px] leading-[1.6] text-prose">{p.body}</span>
+                            <span className=" text-[17px] leading-[1.6] text-ink-body">{p.body}</span>
                           )}
                           {showSources && p.sources.length > 0 && (
                             <span className="flex flex-wrap gap-1.5">
@@ -247,8 +247,8 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                                   }
                                   className={`inline-flex items-center gap-[5px] rounded-md border px-2 py-0.5 text-xs transition hover:border-accent hover:text-accent-ink ${
                                     s.found === false
-                                      ? 'border-dashed border-[#C2560F] bg-white text-[#8A3E0A]'
-                                      : 'border-line bg-page text-chip-ink'
+                                      ? 'border-dashed border-warning bg-surface text-warning-text'
+                                      : 'border-line bg-bg text-ink-muted'
                                   }`}
                                 >
                                   <Icons.file size={12} />
@@ -265,11 +265,11 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                   {t.quote && (
                     <figure
                       className={`m-0 flex flex-col gap-2.5 rounded-xl px-[26px] py-[22px] ${
-                        t.quote_check === 'absent' ? 'border border-dashed border-[#C2560F]' : ''
+                        t.quote_check === 'absent' ? 'border border-dashed border-warning' : ''
                       }`}
-                      style={{ background: t.quote_check === 'absent' ? '#FFFFFF' : t.soft }}
+                      style={{ background: t.quote_check === 'absent' ? 'var(--nn-surface)' : t.soft }}
                     >
-                      <blockquote className="m-0 font-serif text-[21px] italic leading-normal text-ink">
+                      <blockquote className="m-0 text-[21px] italic leading-normal text-ink">
                         « {t.quote} »
                       </blockquote>
                       {t.quote_by && (
@@ -289,11 +289,11 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                   )}
 
                   {t.nuance && (
-                    <div className="flex gap-3 rounded-xl border border-dashed border-[#C3C9D6] px-[18px] py-4">
-                      <Icons.nuance size={20} className="mt-0.5 shrink-0 text-chip-ink" />
+                    <div className="flex gap-3 rounded-xl border border-dashed border-line-dashed px-[18px] py-4">
+                      <Icons.nuance size={20} className="mt-0.5 shrink-0 text-ink-muted" />
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-[13px] font-bold text-chip-ink">Nuance / point de divergence</span>
-                        <span className="text-[15px] leading-[1.55] text-prose">{t.nuance}</span>
+                        <span className="text-[13px] font-bold text-ink-muted">Nuance / point de divergence</span>
+                        <span className="text-[15px] leading-[1.55] text-ink-body">{t.nuance}</span>
                       </div>
                     </div>
                   )}
@@ -307,7 +307,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
             <section
               id="actions"
               aria-labelledby="actions-h"
-              className="flex scroll-mt-6 flex-col gap-[18px] rounded-2xl border border-line bg-white px-9 py-7"
+              className="flex scroll-mt-6 flex-col gap-[18px] rounded-2xl border border-line bg-surface px-9 py-7"
             >
               <h2 id="actions-h" className="m-0 text-2xl font-bold tracking-[-0.01em]">
                 {actionsLabel}
@@ -316,11 +316,11 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                 {result.actions.map((a, i) => {
                   const c = a.theme ? themeColor(a.theme - 1) : null;
                   return (
-                    <li key={i} className="flex items-start gap-4 border-t border-hair py-4">
-                      <span className="w-7 shrink-0 font-serif text-[28px] leading-none text-[#9AA1B0]">{i + 1}</span>
+                    <li key={i} className="flex items-start gap-4 border-t border-surface-3 py-4">
+                      <span className="w-7 shrink-0 text-[28px] leading-none text-ink-subtle">{i + 1}</span>
                       <div className="flex flex-grow flex-col gap-1.5">
                         <span className="text-base font-bold">{a.title}</span>
-                        <span className="text-[15px] leading-[1.55] text-body">{a.body}</span>
+                        <span className="text-[15px] leading-[1.55] text-ink-body">{a.body}</span>
                       </div>
                       {c && (
                         <span

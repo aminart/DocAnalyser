@@ -67,40 +67,40 @@ const SectionTitle: React.FC<{ n: number; id: string; children: React.ReactNode;
   right,
 }) => (
   <div className="mb-5 flex flex-wrap items-center gap-3">
-    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-[13px] font-bold text-white">
+    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-[13px] font-bold text-bg">
       {n}
     </span>
     <h2 id={id} className="m-0 text-[19px] font-bold">
       {children}
     </h2>
-    {right && <span className="ml-auto text-sm text-muted">{right}</span>}
+    {right && <span className="ml-auto text-sm text-ink-muted">{right}</span>}
   </div>
 );
 
 const Radio: React.FC<{ on: boolean }> = ({ on }) => (
   <span
     className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${
-      on ? 'border-accent' : 'border-[#B9C0CF]'
+      on ? 'border-accent' : 'border-line-dashed'
     }`}
   >
-    <span className={`h-2.5 w-2.5 rounded-full ${on ? 'bg-accent' : 'bg-transparent'}`} />
+    <span className={`h-2.5 w-2.5 rounded-full ${on ? 'bg-primary' : 'bg-transparent'}`} />
   </span>
 );
 
 const optionClass = (on: boolean, disabled = false) =>
   `rounded-xl border-[1.5px] text-left text-ink transition ${
-    on ? 'border-accent bg-accent-soft' : 'border-line bg-white hover:border-line-strong'
+    on ? 'border-accent bg-accent-softer' : 'border-line bg-surface hover:border-line-strong'
   } ${disabled ? 'cursor-not-allowed opacity-60 hover:border-line' : ''}`;
 
 const Dots: React.FC<{ label: string; value: number; on: boolean }> = ({ label, value, on }) => (
   <span className="flex flex-col gap-[5px]">
-    <span className="text-xs text-muted">{label}</span>
+    <span className="text-xs text-ink-muted">{label}</span>
     <span className="flex gap-[3px]" aria-label={`${label} ${value} sur 5`}>
       {[1, 2, 3, 4, 5].map((i) => (
         <span
           key={i}
           className="h-1.5 w-3.5 rounded-[3px]"
-          style={{ background: i <= value ? (on ? 'var(--ad-accent)' : 'var(--ad-muted)') : 'var(--ad-line)' }}
+          style={{ background: i <= value ? (on ? 'var(--nn-primary)' : 'var(--nn-ink-muted)') : 'var(--nn-line)' }}
         />
       ))}
     </span>
@@ -205,7 +205,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
     <main className="mx-auto box-border max-w-[1240px] px-8 pb-[72px] pt-10">
       <div className="mb-8 flex flex-col gap-1.5">
         <h1 className="m-0 text-[34px] font-bold leading-[1.15] tracking-[-0.02em]">Nouvelle analyse</h1>
-        <p className="m-0 text-base text-muted">
+        <p className="m-0 text-base text-ink-muted">
           Importez vos documents, choisissez comment les lire, et laissez le modèle en dégager les grands thèmes.
         </p>
       </div>
@@ -213,7 +213,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
       <div className="flex flex-wrap items-start gap-7">
         <div className="flex min-w-0 flex-[999_1_640px] flex-col gap-5">
           {/* 1 · Documents */}
-          <section aria-labelledby="s1" className="rounded-[14px] border border-line bg-white p-7">
+          <section aria-labelledby="s1" className="rounded-[14px] border border-line bg-surface p-7">
             <SectionTitle n={1} id="s1" right={fileCountLabel}>
               Documents
             </SectionTitle>
@@ -230,16 +230,16 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                 addFiles(e.dataTransfer.files);
               }}
               className={`relative flex cursor-pointer flex-col items-center gap-2.5 rounded-xl border-[1.5px] border-dashed px-6 py-8 text-center transition focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-accent ${
-                dragging ? 'border-accent bg-accent-soft' : 'border-[#B9C0CF] bg-[#FAFBFC] hover:border-muted'
+                dragging ? 'border-accent bg-accent-softer' : 'border-line-dashed bg-surface-2 hover:border-line-dashed'
               }`}
             >
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent-tint text-accent">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent-soft text-accent">
                 <Icons.upload size={22} />
               </span>
               <span className="text-base font-semibold">
                 Glissez vos documents ici, ou <span className="text-accent underline">parcourez vos fichiers</span>
               </span>
-              <span className="text-[13px] text-muted">
+              <span className="text-[13px] text-ink-muted">
                 PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT · plusieurs fichiers acceptés
               </span>
               <input
@@ -262,20 +262,20 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                     <FileBadge ext={f.ext} />
                     <span className="flex min-w-0 flex-grow flex-col">
                       <span className="truncate font-semibold">{f.name}</span>
-                      <span className={`text-[13px] ${f.status === 'error' ? 'text-[#9B2216]' : 'text-muted'}`}>
+                      <span className={`text-[13px] ${f.status === 'error' ? 'text-danger-text' : 'text-ink-muted'}`}>
                         {f.status === 'error'
                           ? f.error
                           : [f.ext.toUpperCase(), formatSize(f.size), f.doc?.units].filter(Boolean).join(' · ')}
                       </span>
                       {f.doc?.warnings.map((w) => (
-                        <span key={w} className="text-[13px] font-medium text-[#8A3E0A]">
+                        <span key={w} className="text-[13px] font-medium text-warning-text">
                           ⚠ {w}
                         </span>
                       ))}
                     </span>
                     <span
                       className={`flex shrink-0 items-center gap-1.5 text-[13px] font-semibold ${
-                        f.status === 'ready' ? 'text-ok' : f.status === 'error' ? 'text-[#9B2216]' : 'text-muted'
+                        f.status === 'ready' ? 'text-success-text' : f.status === 'error' ? 'text-danger-text' : 'text-ink-muted'
                       }`}
                     >
                       {f.status === 'ready' && (
@@ -298,7 +298,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                       type="button"
                       onClick={() => removeFile(f)}
                       aria-label={`Retirer ${f.name}`}
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border-none bg-transparent text-muted hover:bg-page"
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border-none bg-transparent text-ink-muted hover:bg-bg"
                     >
                       <Icons.close size={18} />
                     </button>
@@ -306,12 +306,12 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                 ))}
               </ul>
             ) : (
-              <p className="m-0 mt-3.5 text-sm text-muted">Aucun document importé pour l'instant.</p>
+              <p className="m-0 mt-3.5 text-sm text-ink-muted">Aucun document importé pour l'instant.</p>
             )}
           </section>
 
           {/* 2 · Mode */}
-          <section aria-labelledby="s2" className="rounded-[14px] border border-line bg-white p-7">
+          <section aria-labelledby="s2" className="rounded-[14px] border border-line bg-surface p-7">
             <SectionTitle n={2} id="s2">
               Mode d'analyse
             </SectionTitle>
@@ -329,7 +329,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                     <span className="flex w-full items-center gap-3">
                       <span
                         className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] ${
-                          on ? 'bg-accent text-white' : 'bg-chip text-chip-ink'
+                          on ? 'bg-primary text-white' : 'bg-surface-3 text-ink-muted'
                         }`}
                       >
                         <m.Icon size={20} />
@@ -337,8 +337,8 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                       <span className="flex-grow text-base font-bold">{m.title}</span>
                       <Radio on={on} />
                     </span>
-                    <span className="text-sm leading-normal text-body">{m.desc}</span>
-                    <span className="text-[13px] text-muted">
+                    <span className="text-sm leading-normal text-ink-body">{m.desc}</span>
+                    <span className="text-[13px] text-ink-muted">
                       <strong className="font-semibold text-ink">Idéal pour :</strong> {m.ideal}
                     </span>
                   </button>
@@ -348,7 +348,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
           </section>
 
           {/* 3 · Niveau */}
-          <section aria-labelledby="s3" className="rounded-[14px] border border-line bg-white p-7">
+          <section aria-labelledby="s3" className="rounded-[14px] border border-line bg-surface p-7">
             <SectionTitle n={3} id="s3">
               Niveau d'analyse
             </SectionTitle>
@@ -365,19 +365,19 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                   >
                     <span
                       aria-hidden="true"
-                      className="box-border flex h-[54px] w-11 shrink-0 flex-col gap-[3px] rounded-md border border-line bg-white px-[7px] py-2"
+                      className="box-border flex h-[54px] w-11 shrink-0 flex-col gap-[3px] rounded-md border border-line bg-surface px-[7px] py-2"
                     >
                       {BAR_WIDTHS.slice(0, l.bars).map((w, i) => (
                         <span
                           key={i}
                           className="h-[3px] rounded-sm"
-                          style={{ width: w, background: on ? 'var(--ad-accent)' : '#C3C9D6' }}
+                          style={{ width: w, background: on ? 'var(--nn-primary)' : 'var(--nn-line-strong)' }}
                         />
                       ))}
                     </span>
                     <span className="flex flex-col gap-1">
                       <span className="text-base font-bold">{l.title}</span>
-                      <span className="text-sm leading-[1.45] text-body">{l.desc}</span>
+                      <span className="text-sm leading-[1.45] text-ink-body">{l.desc}</span>
                     </span>
                   </button>
                 );
@@ -386,7 +386,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
           </section>
 
           {/* 4 · Modèle */}
-          <section aria-labelledby="s4" className="rounded-[14px] border border-line bg-white p-7">
+          <section aria-labelledby="s4" className="rounded-[14px] border border-line bg-surface p-7">
             <SectionTitle
               n={4}
               id="s4"
@@ -395,18 +395,18 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
               Modèle LLM
             </SectionTitle>
             {modelsError && (
-              <p role="alert" className="m-0 mb-3 text-sm text-[#9B2216]">
+              <p role="alert" className="m-0 mb-3 text-sm text-danger-text">
                 {modelsError}
               </p>
             )}
             {!modelsError && models.length === 0 && (
-              <p className="m-0 mb-3 text-sm text-[#8A3E0A]">
+              <p className="m-0 mb-3 text-sm text-warning-text">
                 Aucun modèle déclaré : renseignez CUSTOM_LLM_API_BASE et CUSTOM_LLM_AVAILABLE_MODELS dans backend/.env
                 (voir .env.example), puis redémarrez le backend.
               </p>
             )}
             {!modelsError && models.length > 0 && configured.length === 0 && (
-              <p className="m-0 mb-3 text-sm text-[#8A3E0A]">
+              <p className="m-0 mb-3 text-sm text-warning-text">
                 Les modèles sont déclarés mais aucune adresse d'API n'est renseignée : complétez CUSTOM_LLM_API_BASE
                 dans backend/.env.
               </p>
@@ -428,21 +428,21 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                       <span className="flex min-w-0 flex-col gap-0.5">
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="text-base font-bold">{m.name}</span>
-                          <span className="rounded-full border border-line-strong px-2 py-px text-xs text-body">
+                          <span className="rounded-full border border-line-strong px-2 py-px text-xs text-ink-body">
                             {m.provider_label}
                           </span>
                           {m.configured && m.id === recommended?.id && (
-                            <span className="rounded-full bg-ok-soft px-2 py-0.5 text-xs font-semibold text-ok">
+                            <span className="rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success-text">
                               Recommandé
                             </span>
                           )}
                           {!m.configured && (
-                            <span className="rounded-full bg-chip px-2 py-0.5 text-xs font-semibold text-chip-ink">
+                            <span className="rounded-full bg-surface-3 px-2 py-0.5 text-xs font-semibold text-ink-muted">
                               Non configuré
                             </span>
                           )}
                         </span>
-                        <span className="text-sm text-body">{m.description}</span>
+                        <span className="text-sm text-ink-body">{m.description}</span>
                       </span>
                     </span>
                     <span className="flex flex-[1_1_260px] flex-wrap justify-end gap-5">
@@ -458,7 +458,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
               <button
                 type="button"
                 onClick={() => setShowAllModels((v) => !v)}
-                className="mt-3 border-none bg-transparent p-0 text-sm font-semibold text-accent hover:text-accent-hover"
+                className="mt-3 border-none bg-transparent p-0 text-sm font-semibold text-accent hover:text-accent-ink"
               >
                 {showAllModels
                   ? 'Masquer les modèles non configurés'
@@ -470,7 +470,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
 
         {/* Récapitulatif */}
         <aside aria-label="Récapitulatif" className="flex min-w-0 flex-[1_1_320px] flex-col gap-4 lg:sticky lg:top-6">
-          <div className="flex flex-col gap-[18px] rounded-[14px] border border-line bg-white p-6">
+          <div className="flex flex-col gap-[18px] rounded-[14px] border border-line bg-surface p-6">
             <h2 className="m-0 text-[17px] font-bold">Récapitulatif</h2>
             <dl className="m-0 flex flex-col gap-3.5">
               {(
@@ -483,22 +483,22 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
               ).map(([dt, dd], i, arr) => (
                 <div
                   key={dt}
-                  className={`flex justify-between gap-3 ${i < arr.length - 1 ? 'border-b border-hair pb-3' : ''}`}
+                  className={`flex justify-between gap-3 ${i < arr.length - 1 ? 'border-b border-surface-3 pb-3' : ''}`}
                 >
-                  <dt className="text-muted">{dt}</dt>
+                  <dt className="text-ink-muted">{dt}</dt>
                   <dd className="m-0 text-right font-semibold">{dd}</dd>
                 </div>
               ))}
             </dl>
 
-            <div className="flex flex-col gap-3 rounded-[10px] bg-[#F7F8FA] px-4 py-3.5">
-              <span className="text-[13px] font-semibold uppercase tracking-[0.06em] text-body">Options</span>
+            <div className="flex flex-col gap-3 rounded-[10px] bg-surface-2 px-4 py-3.5">
+              <span className="text-[13px] font-semibold uppercase tracking-[0.06em] text-ink-body">Options</span>
               <label className="flex items-center justify-between gap-3 text-sm">
                 Langue de la synthèse
                 <select
                   value={language}
                   onChange={(e) => setLanguage(e.target.value as 'fr' | 'en')}
-                  className="rounded-lg border border-line-strong bg-white px-2 py-1.5 text-ink"
+                  className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-ink"
                 >
                   <option value="fr">Français</option>
                   <option value="en">Anglais</option>
@@ -513,16 +513,16 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                 Citer les sources dans la synthèse
                 <span
                   className={`box-border flex h-[22px] w-[38px] shrink-0 items-center rounded-full p-[3px] transition ${
-                    cite ? 'justify-end bg-accent' : 'justify-start bg-[#C3C9D6]'
+                    cite ? 'justify-end bg-primary' : 'justify-start bg-line-strong'
                   }`}
                 >
-                  <span className="h-4 w-4 rounded-full bg-white" />
+                  <span className="h-4 w-4 rounded-full bg-surface" />
                 </span>
               </button>
             </div>
 
             {error && (
-              <p role="alert" className="m-0 rounded-lg bg-[#FCE4E2] px-3 py-2 text-sm text-[#9B2216]">
+              <p role="alert" className="m-0 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger-text">
                 {error}
               </p>
             )}
@@ -531,12 +531,12 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
               type="button"
               onClick={launch}
               disabled={!canLaunch}
-              className="flex min-h-[52px] items-center justify-center gap-2.5 rounded-xl border-none bg-accent text-[17px] font-bold text-white transition hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex min-h-[52px] items-center justify-center gap-2.5 rounded-xl border-none bg-primary text-[17px] font-bold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? 'Lancement…' : 'Analyser'}
               <Icons.arrow size={18} strokeWidth={2.2} />
             </button>
-            <p className="m-0 text-center text-[13px] text-muted">{blocker ?? `Durée estimée : ${eta}`}</p>
+            <p className="m-0 text-center text-[13px] text-ink-muted">{blocker ?? `Durée estimée : ${eta}`}</p>
           </div>
         </aside>
       </div>

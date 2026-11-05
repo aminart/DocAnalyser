@@ -4,8 +4,8 @@ import { Icons, docCountLabel, themeColor } from './ui';
 
 const Spinner: React.FC<{ size: number; stroke: number }> = ({ size, stroke }) => (
   <svg className="ad-spin" width={size} height={size} viewBox="0 0 64 64" aria-hidden="true">
-    <circle cx="32" cy="32" r="28" fill="none" stroke="var(--ad-line)" strokeWidth={stroke} />
-    <path d="M32 4a28 28 0 0 1 28 28" fill="none" stroke="var(--ad-accent)" strokeWidth={stroke} strokeLinecap="round" />
+    <circle cx="32" cy="32" r="28" fill="none" stroke="var(--nn-line)" strokeWidth={stroke} />
+    <path d="M32 4a28 28 0 0 1 28 28" fill="none" stroke="var(--nn-primary)" strokeWidth={stroke} strokeLinecap="round" />
   </svg>
 );
 
@@ -55,27 +55,27 @@ export const ProgressScreen: React.FC<{
         <div className="relative h-16 w-16">
           {running && <Spinner size={64} stroke={5} />}
           {done && (
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-accent text-white">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-primary text-white">
               <Icons.check size={30} strokeWidth={2.4} />
             </span>
           )}
           {!running && !done && (
-            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[#FCE4E2] text-[#9B2216]">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-danger-soft text-danger-text">
               <Icons.close size={28} strokeWidth={2.4} />
             </span>
           )}
         </div>
         <h1 className="m-0 text-[30px] font-bold leading-[1.2] tracking-[-0.02em]">{headline}</h1>
-        <p className="m-0 max-w-[520px] text-base text-muted" role={analysis.status === 'failed' ? 'alert' : undefined}>
+        <p className="m-0 max-w-[520px] text-base text-ink-muted" role={analysis.status === 'failed' ? 'alert' : undefined}>
           {subline}
         </p>
       </div>
 
-      <div className="flex flex-col gap-[22px] rounded-[14px] border border-line bg-white p-7">
+      <div className="flex flex-col gap-[22px] rounded-[14px] border border-line bg-surface p-7">
         <div className="flex flex-col gap-2">
           <div className="flex justify-between text-sm">
             <span className="font-semibold">Progression</span>
-            <span className="tabular-nums text-muted">{pct} %</span>
+            <span className="tabular-nums text-ink-muted">{pct} %</span>
           </div>
           <div
             role="progressbar"
@@ -83,10 +83,10 @@ export const ProgressScreen: React.FC<{
             aria-valuemax={100}
             aria-valuenow={pct}
             aria-label="Progression de l'analyse"
-            className="h-2 overflow-hidden rounded-full bg-hair"
+            className="h-2 overflow-hidden rounded-full bg-surface-3"
           >
             <div
-              className="h-full rounded-full bg-accent transition-[width] duration-500 ease-out"
+              className="h-full rounded-full bg-primary transition-[width] duration-500 ease-out"
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -100,21 +100,21 @@ export const ProgressScreen: React.FC<{
               <li key={st.key} className="flex items-center gap-3.5 py-2.5">
                 <span
                   className={`box-border flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full border-2 ${
-                    isDone ? 'border-accent bg-accent' : isActive ? 'border-accent bg-white' : 'border-line-strong bg-white'
+                    isDone ? 'border-accent bg-primary' : isActive ? 'border-accent bg-surface' : 'border-line-strong bg-surface'
                   }`}
                 >
                   {isDone && <Icons.check size={14} strokeWidth={3} className="text-white" />}
                   {isActive && (
                     <svg className="ad-spin" width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M12 3a9 9 0 0 1 9 9" fill="none" stroke="var(--ad-accent)" strokeWidth="3" strokeLinecap="round" />
+                      <path d="M12 3a9 9 0 0 1 9 9" fill="none" stroke="var(--nn-primary)" strokeWidth="3" strokeLinecap="round" />
                     </svg>
                   )}
                 </span>
                 <span className="flex flex-grow flex-col">
-                  <span className={`font-semibold ${isDone || isActive ? 'text-ink' : 'text-muted'}`}>{st.label}</span>
-                  <span className="text-[13px] text-muted">{st.detail}</span>
+                  <span className={`font-semibold ${isDone || isActive ? 'text-ink' : 'text-ink-muted'}`}>{st.label}</span>
+                  <span className="text-[13px] text-ink-muted">{st.detail}</span>
                 </span>
-                <span className="text-[13px] tabular-nums text-muted">
+                <span className="text-[13px] tabular-nums text-ink-muted">
                   {isDone ? 'Terminé' : isActive ? `${st.progress} %` : 'En attente'}
                 </span>
               </li>
@@ -123,12 +123,12 @@ export const ProgressScreen: React.FC<{
         </ol>
       </div>
 
-      <div className="flex flex-col gap-3.5 rounded-[14px] border border-line bg-white px-7 py-6">
+      <div className="flex flex-col gap-3.5 rounded-[14px] border border-line bg-surface px-7 py-6">
         <div className="flex items-center gap-2.5">
-          <span className="text-[13px] font-semibold uppercase tracking-[0.06em] text-body">
+          <span className="text-[13px] font-semibold uppercase tracking-[0.06em] text-ink-body">
             {flow ? 'Étapes qui émergent' : 'Thèmes qui émergent'}
           </span>
-          <span className="text-[13px] text-muted">· aperçu en direct</span>
+          <span className="text-[13px] text-ink-muted">· aperçu en direct</span>
         </div>
         <div className="flex min-h-[38px] flex-wrap gap-2">
           {analysis.preview.map((label, i) => {
@@ -153,7 +153,7 @@ export const ProgressScreen: React.FC<{
           <button
             type="button"
             onClick={onCancel}
-            className="inline-flex min-h-11 items-center rounded-[10px] border border-line-strong bg-white px-5 font-semibold text-ink hover:bg-page"
+            className="inline-flex min-h-11 items-center rounded-[10px] border border-line-strong bg-surface px-5 font-semibold text-ink hover:bg-bg"
           >
             Annuler l'analyse
           </button>
@@ -162,7 +162,7 @@ export const ProgressScreen: React.FC<{
           <button
             type="button"
             onClick={onShowResult}
-            className="inline-flex min-h-12 items-center gap-2.5 rounded-[10px] border-none bg-accent px-6 font-bold text-white hover:bg-accent-hover"
+            className="inline-flex min-h-12 items-center gap-2.5 rounded-[10px] border-none bg-primary px-6 font-bold text-white hover:bg-primary-hover"
           >
             Voir la synthèse
             <Icons.arrow size={18} strokeWidth={2.2} />
@@ -172,7 +172,7 @@ export const ProgressScreen: React.FC<{
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex min-h-11 items-center rounded-[10px] border-none bg-ink px-5 font-semibold text-white hover:opacity-90"
+            className="inline-flex min-h-11 items-center rounded-[10px] border-none bg-primary px-5 font-semibold text-white hover:bg-primary-hover hover:opacity-90"
           >
             Retour à la configuration
           </button>

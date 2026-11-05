@@ -1,3 +1,4 @@
+@import 'night-navy/night-navy.css';
 @import './theme.css';
 
 @tailwind base;
@@ -12,7 +13,7 @@
 .ad-spin { animation: ad-spin 0.9s linear infinite; }
 .ad-fade { animation: ad-fade 0.35s ease both; }
 .ad-shimmer {
-  background: linear-gradient(90deg, #eef0f4 0%, #f7f8fa 50%, #eef0f4 100%);
+  background: linear-gradient(90deg, var(--nn-surface-3) 0%, var(--nn-surface-2) 50%, var(--nn-surface-3) 100%);
   background-size: 400px 100%;
   animation: ad-shimmer 1.2s linear infinite;
 }

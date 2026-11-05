@@ -125,19 +125,19 @@ export const App: React.FC = () => {
       body = (
         <main className="mx-auto flex max-w-[760px] flex-col items-center gap-4 px-6 py-20 text-center">
           <h1 className="m-0 text-[26px] font-bold">Analyse indisponible</h1>
-          <p className="m-0 text-muted">{loadError}</p>
+          <p className="m-0 text-ink-muted">{loadError}</p>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => go('#/historique')}
-              className="min-h-11 rounded-[10px] border border-line-strong bg-white px-5 font-semibold text-ink"
+              className="min-h-11 rounded-[10px] border border-line-strong bg-surface px-5 font-semibold text-ink"
             >
               Voir l’historique
             </button>
             <button
               type="button"
               onClick={() => go('#/')}
-              className="min-h-11 rounded-[10px] border-none bg-ink px-5 font-semibold text-white"
+              className="min-h-11 rounded-[10px] border-none bg-primary px-5 font-semibold text-white hover:bg-primary-hover"
             >
               Nouvelle analyse
             </button>
@@ -145,7 +145,7 @@ export const App: React.FC = () => {
         </main>
       );
     } else if (!current) {
-      body = <p className="py-20 text-center text-muted">Chargement…</p>;
+      body = <p className="py-20 text-center text-ink-muted">Chargement…</p>;
     } else if (route.screen === 'result' && current.status === 'done' && current.result) {
       const props = { analysis: current, onNewAnalysis: () => go('#/') };
       body =
@@ -169,7 +169,7 @@ export const App: React.FC = () => {
   const showingProgress = route.screen === 'progress' || (route.screen === 'result' && current?.status !== 'done');
 
   return (
-    <div className="min-h-screen bg-page font-sans text-[15px] leading-normal text-ink">
+    <div className="min-h-screen bg-bg font-sans text-[15px] leading-normal text-ink">
       {showingProgress && current ? (
         <AppHeader right={`${current.mode_label} · ${current.level_label} · ${modelLabel(current)}`} />
       ) : (

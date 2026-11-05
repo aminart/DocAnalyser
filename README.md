@@ -1,8 +1,10 @@
-# Analyse documentaire
+# DocAnalyser
 
 Importez vos documents, choisissez comment les lire, et laissez un modèle de langage en dégager les grands thèmes.
 
 Quatre modes d'analyse : **Synthèse globale**, **Synthèse de transcription**, **Synthèse de notes en vrac** et **Flux et parcours utilisateurs**, chacun en trois niveaux de détail (synthétique, détaillé, très détaillé).
+
+Interface : design system commun **Night Navy** (le même que SpecGen et Audit ergonomique, paquet `night-navy` du dépôt [Design-system-](https://github.com/aminart/Design-system-)), en mode clair ou sombre : le bouton en haut à droite bascule, sinon le thème suit celui du système.
 
 Écrans : Configuration → Analyse en cours (progression et thèmes en direct) → Synthèse par thèmes, ou carte du parcours pour le mode Flux. Les synthèses s'exportent en Markdown, Word ou PDF.
 
@@ -48,7 +50,7 @@ L'application respecte le contrat commun aux applications de la suite :
 |---|---|
 | Port par défaut | **8020** |
 | Options | `--port N` (port imposé : échec explicite, code 2, s'il est pris par une autre application), `--no-browser`, `--version` |
-| État | `GET /health` → `{"status": "ok", "app": "analyse-documentaire", "name": "Analyse documentaire", "version": "…"}` |
+| État | `GET /health` → `{"status": "ok", "app": "docanalyser", "name": "DocAnalyser", "version": "…"}` |
 
 Exemple : `backend/.venv/bin/python backend/launcher.py --port 8020 --no-browser`. La version se règle dans `backend/app/info.py`.
 

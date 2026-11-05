@@ -1,12 +1,12 @@
 #!/bin/bash
-# Lance Analyse documentaire : le backend sert aussi l'interface compilée, sur http://127.0.0.1:8020.
+# Lance DocAnalyser : le backend sert aussi l'interface compilée, sur http://127.0.0.1:8020.
 # Node.js n'est nécessaire que pour compiler l'interface (absente, ou plus ancienne que ses sources).
 # Options transmises au lanceur : ./start.sh --no-browser, ./start.sh --port 8021, ./start.sh --reload…
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT" || exit 1
 
-echo "🚀 Lancement de l'application Analyse documentaire..."
+echo "🚀 Lancement de l'application DocAnalyser..."
 
 # 1. Environnement Python
 if [ ! -f "backend/.venv/bin/python" ]; then

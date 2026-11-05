@@ -12,7 +12,7 @@ from app.services import store
 from app.services.export_service import markdown_to_docx, markdown_to_pdf
 from app.services.source_lookup import passage
 
-router = APIRouter(prefix="/api/v2", tags=["Analyse documentaire"])
+router = APIRouter(prefix="/api/v2", tags=["DocAnalyser"])
 
 
 class AnalysisCreate(BaseModel):

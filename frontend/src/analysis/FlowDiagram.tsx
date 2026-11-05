@@ -4,18 +4,18 @@ import { FlowGraph } from './types';
 type Direction = 'LR' | 'TB';
 
 const LEGEND: { label: string; swatch: React.CSSProperties }[] = [
-  { label: 'Entrée / objectif', swatch: { borderRadius: 999, border: '1.5px solid var(--ad-ink)' } },
-  { label: 'Étape', swatch: { borderRadius: 3, border: '1.5px solid var(--ad-line-strong)' } },
-  { label: 'Décision', swatch: { transform: 'rotate(45deg) scale(0.8)', border: '1.5px solid var(--ad-muted)', background: 'var(--ad-page)' } },
-  { label: 'Point de friction', swatch: { borderRadius: 3, border: '2px solid #C2560F', background: '#FFF8F3' } },
-  { label: 'Abandon / sortie', swatch: { borderRadius: 3, border: '1.5px dashed #C2560F' } },
+  { label: 'Entrée / objectif', swatch: { borderRadius: 999, border: '1.5px solid var(--nn-ink)' } },
+  { label: 'Étape', swatch: { borderRadius: 3, border: '1.5px solid var(--nn-line-strong)' } },
+  { label: 'Décision', swatch: { transform: 'rotate(45deg) scale(0.8)', border: '1.5px solid var(--nn-ink-muted)', background: 'var(--nn-bg)' } },
+  { label: 'Point de friction', swatch: { borderRadius: 3, border: '2px solid var(--nn-warning)', background: 'var(--nn-warning-soft)' } },
+  { label: 'Abandon / sortie', swatch: { borderRadius: 3, border: '1.5px dashed var(--nn-warning)' } },
 ];
 
 const EDGE_LEGEND = [
-  { label: 'Chemin principal', stroke: 'var(--ad-muted)', dash: undefined },
-  { label: 'Alternatif', stroke: '#9AA1B0', dash: undefined },
-  { label: 'Vers un abandon', stroke: '#C2560F', dash: '4 3' },
-  { label: 'Retour en arrière', stroke: 'var(--ad-accent)', dash: '2 3' },
+  { label: 'Chemin principal', stroke: 'var(--nn-ink-muted)', dash: undefined },
+  { label: 'Alternatif', stroke: 'var(--nn-ink-subtle)', dash: undefined },
+  { label: 'Vers un abandon', stroke: 'var(--nn-warning)', dash: '4 3' },
+  { label: 'Retour en arrière', stroke: 'var(--nn-primary)', dash: '2 3' },
 ];
 
 let mermaidPromise: Promise<typeof import('mermaid').default> | null = null;
@@ -65,13 +65,13 @@ export const FlowDiagram: React.FC<{ graph: FlowGraph }> = ({ graph }) => {
   const labels = Object.fromEntries(graph.nodes.map((n) => [n.id, n.label]));
   const btn = (on: boolean) =>
     `min-h-8 rounded-md border-none px-3 text-[13px] font-semibold ${
-      on ? 'bg-white text-ink shadow-[0_1px_2px_rgba(20,23,31,0.12)]' : 'bg-transparent text-body'
+      on ? 'bg-surface text-ink shadow-[0_1px_2px_rgba(20,23,31,0.12)]' : 'bg-transparent text-ink-body'
     }`;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <div role="group" aria-label="Orientation du schéma" className="flex gap-0.5 rounded-lg bg-chip p-[3px]">
+        <div role="group" aria-label="Orientation du schéma" className="flex gap-0.5 rounded-lg bg-surface-3 p-[3px]">
           <button type="button" aria-pressed={direction === 'LR'} onClick={() => setDirection('LR')} className={btn(direction === 'LR')}>
             Horizontal
           </button>
@@ -79,7 +79,7 @@ export const FlowDiagram: React.FC<{ graph: FlowGraph }> = ({ graph }) => {
             Vertical
           </button>
         </div>
-        <div role="group" aria-label="Zoom" className="flex items-center gap-0.5 rounded-lg bg-chip p-[3px]">
+        <div role="group" aria-label="Zoom" className="flex items-center gap-0.5 rounded-lg bg-surface-3 p-[3px]">
           <button type="button" aria-label="Dézoomer" onClick={() => setZoom((z) => Math.max(0.4, +(z - 0.2).toFixed(1)))} className={`${btn(false)} w-8 px-0`}>
             −
           </button>
@@ -90,18 +90,18 @@ export const FlowDiagram: React.FC<{ graph: FlowGraph }> = ({ graph }) => {
             +
           </button>
         </div>
-        <span className="text-[13px] text-muted">
+        <span className="text-[13px] text-ink-muted">
           {graph.nodes.length} étapes · {graph.edges.length} liens
         </span>
       </div>
 
-      <div className="max-h-[720px] overflow-auto rounded-xl border border-hair bg-[#FCFCFD] p-4">
+      <div className="max-h-[720px] overflow-auto rounded-xl border border-line bg-[#FFFFFF] p-4">
         {failed ? (
-          <ol className="m-0 flex flex-col gap-1.5 pl-5 text-sm text-prose">
+          <ol className="m-0 flex flex-col gap-1.5 pl-5 text-sm text-ink-body">
             {graph.edges.map((e, i) => (
               <li key={i}>
                 {labels[e.from]} → {labels[e.to]}
-                {e.label && <span className="text-muted"> — {e.label}</span>}
+                {e.label && <span className="text-ink-muted"> — {e.label}</span>}
               </li>
             ))}
           </ol>
@@ -118,10 +118,10 @@ export const FlowDiagram: React.FC<{ graph: FlowGraph }> = ({ graph }) => {
         )}
       </div>
 
-      <div className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-body">
+      <div className="flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-ink-body">
         {LEGEND.map((l) => (
           <span key={l.label} className="inline-flex items-center gap-2">
-            <span className="inline-block h-3 w-4 bg-white" style={l.swatch} />
+            <span className="inline-block h-3 w-4 bg-surface" style={l.swatch} />
             {l.label}
           </span>
         ))}

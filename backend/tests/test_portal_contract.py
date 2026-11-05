@@ -20,7 +20,7 @@ def app_with_frontend(tmp_path, monkeypatch):
     (tmp_path.parent / "secret.txt").write_text("secret", encoding="utf-8")
     tmp_path = tmp_path / "dist"
     (tmp_path / "assets").mkdir(parents=True)
-    (tmp_path / "index.html").write_text("<!doctype html><title>Analyse documentaire</title>", encoding="utf-8")
+    (tmp_path / "index.html").write_text("<!doctype html><title>DocAnalyser</title>", encoding="utf-8")
     (tmp_path / "assets" / "app.js").write_text("console.log(1)", encoding="utf-8")
     (tmp_path / "logo.svg").write_text("<svg/>", encoding="utf-8")
     monkeypatch.setenv("FRONTEND_DIST", str(tmp_path))
@@ -36,7 +36,7 @@ def test_health():
     from app.main import app
 
     body = TestClient(app).get("/health").json()
-    assert body == {"status": "ok", "app": APP_ID, "name": "Analyse documentaire", "version": VERSION}
+    assert body == {"status": "ok", "app": APP_ID, "name": "DocAnalyser", "version": VERSION}
 
 
 def test_default_port():
@@ -45,8 +45,8 @@ def test_default_port():
 
 def test_backend_serves_the_frontend(app_with_frontend):
     client = TestClient(app_with_frontend)
-    assert "Analyse documentaire" in client.get("/").text
-    assert "Analyse documentaire" in client.get("/historique").text  # route de l'interface : index.html
+    assert "DocAnalyser" in client.get("/").text
+    assert "DocAnalyser" in client.get("/historique").text  # route de l'interface : index.html
     assert client.get("/assets/app.js").text == "console.log(1)"
     assert client.get("/logo.svg").text == "<svg/>"
     assert client.get("/health").json()["app"] == APP_ID
