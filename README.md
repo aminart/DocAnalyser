@@ -16,11 +16,11 @@ Quatre modes d'analyse : **Synthèse globale**, **Synthèse de transcription**, 
 ### Sous Windows
 Double-cliquez simplement sur **`start.bat`** (ou lancez `start.bat` dans un terminal).
 
-Le script vérifie automatiquement l'installation, installe les dépendances manquantes si nécessaire, lance le backend sur http://localhost:8000, le frontend sur **http://localhost:5173**, et ouvre directement votre navigateur.
+Le script vérifie automatiquement l'installation, installe les dépendances manquantes si nécessaire, compile l'interface si elle est absente ou plus ancienne que ses sources, puis lance l'application sur **http://127.0.0.1:8020** et ouvre votre navigateur. Le backend sert lui-même l'interface compilée (`frontend/dist`) : un seul processus, une seule fenêtre, une seule adresse.
 
-Pour tout arrêter d'un coup sous Windows, vous pouvez fermer les fenêtres ou exécuter **`stop.bat`**.
+Pour arrêter, fermez la fenêtre (ou Ctrl+C), ou exécutez **`stop.bat`**.
 
-Prérequis Windows : **Python 3.10+** (cochez « Add python.exe to PATH » à l'installation ; le lanceur `py` est utilisé en priorité) et **Node.js LTS**. Au premier lancement, `start.bat` crée `backend\.venv`, installe les dépendances et copie `backend\.env.example` en `backend\.env`. Le backend s'ouvre dans sa propre fenêtre, qui reste ouverte en cas d'erreur pour que vous puissiez lire le message. Si le port 5173 est déjà pris par un ancien lancement, exécutez `stop.bat` puis relancez `start.bat`.
+Prérequis Windows : **Python 3.10+** (cochez « Add python.exe to PATH » à l'installation ; le lanceur `py` est utilisé en priorité) et **Node.js LTS**, nécessaire seulement pour compiler l'interface (premier lancement, puis après une mise à jour de ses sources). Au premier lancement, `start.bat` crée `backend\.venv`, installe les dépendances et copie `backend\.env.example` en `backend\.env`. La fenêtre reste ouverte en cas d'erreur pour que vous puissiez lire le message. Si le port 8020 est déjà pris par un ancien lancement, exécutez `stop.bat` puis relancez `start.bat`.
 
 **Réseau d'entreprise** : l'application n'utilise que des bibliothèques Python courantes (FastAPI, httpx, PyMuPDF, python-docx…). Les appels aux modèles passent par un petit client interne compatible OpenAI, sans dépendance spécialisée souvent bloquée par les proxys. Si `pip install` échoue quand même avec une erreur 403 ou de certificat, c'est le dépôt de paquets de l'entreprise qui refuse le téléchargement : demandez à votre service informatique l'adresse du miroir PyPI interne, puis configurez-le avec `pip config set global.index-url <adresse>`.
 
@@ -37,7 +37,29 @@ cp .env.example .env
 ```bash
 cd frontend
 npm install
+npm run build      # interface compilée, servie par le backend
 ```
+
+### Lancement par le portail
+
+L'application respecte le contrat commun aux applications de la suite :
+
+| | |
+|---|---|
+| Port par défaut | **8020** |
+| Options | `--port N` (port imposé : échec explicite, code 2, s'il est pris par une autre application), `--no-browser`, `--version` |
+| État | `GET /health` → `{"status": "ok", "app": "analyse-documentaire", "name": "Analyse documentaire", "version": "…"}` |
+
+Exemple : `backend/.venv/bin/python backend/launcher.py --port 8020 --no-browser`. La version se règle dans `backend/app/info.py`.
+
+### Développement de l'interface
+
+```bash
+backend/.venv/bin/python backend/launcher.py --no-browser --reload   # API sur http://127.0.0.1:8020
+cd frontend && npm run dev                                          # interface sur http://localhost:5173, rechargée à chaque modification
+```
+
+Vite relaie `/api` vers le backend (voir `frontend/vite.config.ts`).
 
 ## 2. Configuration des modèles (`backend/.env`)
 
@@ -99,6 +121,7 @@ Sous Windows, remplacez `.venv/bin/python` par `.venv\Scripts\python`. Pour test
 
 ## 5. API
 
+- `GET /health` : état et version de l'application (contrat du portail)
 - `GET /api/v2/models` : modèles déclarés et leur disponibilité
 - `POST /api/v2/documents` : import et lecture d'un fichier (PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT)
 - `POST /api/v2/analyses` puis `GET /api/v2/analyses/{id}` : analyse en 5 étapes avec aperçu des thèmes en direct

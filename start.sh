@@ -1,34 +1,29 @@
 #!/bin/bash
+# Lance Analyse documentaire : le backend sert aussi l'interface compilée, sur http://127.0.0.1:8020.
+# Node.js n'est nécessaire que pour compiler l'interface (absente, ou plus ancienne que ses sources).
+# Options transmises au lanceur : ./start.sh --no-browser, ./start.sh --port 8021, ./start.sh --reload…
 
-# Gestion de l'arrêt propre avec Ctrl+C
-cleanup() {
-    echo -e "\nArrêt de l'application..."
-    if [ -n "$BACKEND_PID" ]; then
-        kill "$BACKEND_PID" 2>/dev/null
-    fi
-    exit 0
-}
-trap cleanup SIGINT SIGTERM
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT" || exit 1
 
 echo "🚀 Lancement de l'application Analyse documentaire..."
 
-# 1. Vérifier / Lancer le backend
-if lsof -Pi :8000 -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "✅ Le Backend est déjà actif sur http://localhost:8000"
-else
-    echo "📦 Démarrage du Backend sur http://localhost:8000..."
-    if [ -f "backend/.venv/bin/activate" ]; then
-        source backend/.venv/bin/activate
-    else
-        echo "❌ backend/.venv introuvable : voir « Première installation » dans le README."
-        exit 1
-    fi
-    uvicorn app.main:app --app-dir backend --reload --port 8000 &
-    BACKEND_PID=$!
-    sleep 1
+# 1. Environnement Python
+if [ ! -f "backend/.venv/bin/python" ]; then
+    echo "❌ backend/.venv introuvable : voir « Première installation » dans le README."
+    exit 1
 fi
 
-# 2. Lancer le frontend
-echo "💻 Démarrage du Frontend sur http://localhost:5173..."
-cd "$(dirname "$0")/frontend" || exit 1
-npm run dev
+# 2. Interface compilée, reconstruite si une source est plus récente
+DIST="frontend/dist/index.html"
+if [ ! -f "$DIST" ] || [ -n "$(find frontend/src frontend/index.html frontend/package.json -newer "$DIST" -print -quit)" ]; then
+    if ! command -v npm >/dev/null 2>&1; then
+        echo "❌ L'interface doit être compilée, mais npm est introuvable : installez Node.js LTS."
+        exit 1
+    fi
+    echo "💻 Compilation de l'interface..."
+    (cd frontend && { [ -d node_modules ] || npm install; } && npm run build) || { echo "❌ La compilation de l'interface a échoué."; exit 1; }
+fi
+
+# 3. Lancement (Ctrl+C pour arrêter)
+exec backend/.venv/bin/python backend/launcher.py "$@"

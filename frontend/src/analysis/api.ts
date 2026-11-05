@@ -1,13 +1,14 @@
 import { Analysis, AnalysisLevel, AnalysisSummary, AnalysisMode, ModelInfo, SourcePassage, SourceRequest, UploadedDocument } from './types';
 
-const API_BASE = (import.meta.env.VITE_ANALYSIS_API_URL || 'http://localhost:8000/api/v2').replace(/\/$/, '');
+// Même origine : le backend sert l'interface (et Vite relaie /api en développement, voir vite.config.ts).
+const API_BASE = (import.meta.env.VITE_ANALYSIS_API_URL || '/api/v2').replace(/\/$/, '');
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, init);
   } catch {
-    throw new Error('Serveur injoignable : vérifiez que le backend tourne sur le port 8000.');
+    throw new Error('Serveur injoignable : l’application est-elle toujours lancée ? Relancez start.bat si besoin.');
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.detail || `Erreur HTTP ${res.status}`);

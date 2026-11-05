@@ -3,6 +3,9 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
 title Analyse documentaire
 
+rem Le backend sert aussi l'interface compilee : une seule fenetre, une seule adresse.
+rem Node.js n'est necessaire que pour compiler l'interface, absente ou plus ancienne que ses sources.
+rem
 rem Remarque : pas de parentheses dans les messages, et pas de blocs if ( ... ) contenant des echo :
 rem une parenthese dans un message ferme le bloc et fait planter le script.
 
@@ -15,11 +18,7 @@ echo   Lancement de l'application Analyse documentaire
 echo ============================================================
 echo.
 
-rem ---------------------------------------------------------------- 1. Node.js
-where npm >nul 2>&1
-if errorlevel 1 goto :no_node
-
-rem ---------------------------------------------------------------- 2. Python
+rem ---------------------------------------------------------------- 1. Python
 if exist "%VENV_PY%" goto :venv_ready
 
 echo [1/3] Creation de l'environnement Python backend\.venv...
@@ -49,67 +48,50 @@ if errorlevel 1 goto :pip_failed
 :deps_ready
 echo [OK] Environnement Python pret : backend\.venv
 
-rem ---------------------------------------------------------------- 3. Configuration
+rem ---------------------------------------------------------------- 2. Configuration
 if exist "%ROOT%backend\.env" goto :env_ready
 if not exist "%ROOT%backend\.env.example" goto :env_ready
 copy "%ROOT%backend\.env.example" "%ROOT%backend\.env" >nul
 echo [INFO] backend\.env cree a partir de backend\.env.example : renseignez-y vos modeles et cles.
 :env_ready
 
-rem ---------------------------------------------------------------- 4. Frontend
-if exist "%ROOT%frontend\node_modules\.bin\vite.cmd" goto :front_ready
-echo [2/3] Installation des dependances frontend : npm install...
+rem ---------------------------------------------------------------- 3. Interface compilee
+if not exist "%ROOT%frontend\dist\index.html" goto :build_front
+rem Recompilation si une source de l'interface est plus recente que la version compilee, par exemple apres une mise a jour.
+powershell -NoProfile -Command "$d = (Get-Item -LiteralPath '%ROOT%frontend\dist\index.html').LastWriteTime; $s = Get-ChildItem -LiteralPath '%ROOT%frontend\src','%ROOT%frontend\index.html','%ROOT%frontend\package.json' -Recurse -File | Where-Object { $_.LastWriteTime -gt $d }; if ($s) { exit 1 } else { exit 0 }"
+if errorlevel 1 goto :build_front
+goto :front_ready
+
+:build_front
+where npm >nul 2>&1
+if errorlevel 1 goto :no_node
 pushd "%ROOT%frontend"
+if exist "node_modules\.bin\vite.cmd" goto :front_deps_ready
+echo [3/3] Installation des dependances de l'interface : npm install...
 call npm install
-set "NPM_RC=!errorlevel!"
+if errorlevel 1 goto :npm_failed_pop
+:front_deps_ready
+echo [3/3] Compilation de l'interface : npm run build...
+call npm run build
+if errorlevel 1 goto :build_failed_pop
 popd
-if not "!NPM_RC!"=="0" goto :npm_failed
 :front_ready
-echo [OK] Dependances frontend pretes
+echo [OK] Interface prete : frontend\dist
 
+rem ---------------------------------------------------------------- 4. Lancement
 echo.
 echo ============================================================
-echo   Demarrage des services
+echo   Analyse documentaire : http://127.0.0.1:8020
+echo   Gardez cette fenetre ouverte ; fermez-la ou faites Ctrl+C pour arreter.
 echo ============================================================
 echo.
-
-rem ---------------------------------------------------------------- 5. Backend
-rem Detection par PowerShell : netstat affiche des etats traduits selon la langue de Windows.
-powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
-if not errorlevel 1 goto :backend_running
-
-echo [3/3] Demarrage du backend sur http://localhost:8000 dans une nouvelle fenetre...
-rem La fenetre reste ouverte en cas d'erreur pour pouvoir la lire.
-start "Analyse documentaire - Backend" /d "%ROOT%backend" cmd /k ""%VENV_PY%" -m uvicorn app.main:app --reload --port 8000"
-
-echo Attente du backend...
-powershell -NoProfile -Command "for ($i = 0; $i -lt 60; $i++) { try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 http://127.0.0.1:8000/health | Out-Null; exit 0 } catch { Start-Sleep -Milliseconds 500 } }; exit 1"
-if errorlevel 1 echo [ATTENTION] Le backend ne repond pas encore : consultez la fenetre Backend en cas d'erreur.
-goto :start_frontend
-
-:backend_running
-echo [OK] Un backend est deja actif sur le port 8000. Pour le redemarrer, lancez stop.bat puis start.bat.
-
-rem ---------------------------------------------------------------- 6. Frontend
-:start_frontend
-powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue) { exit 0 } else { exit 1 }"
-if not errorlevel 1 goto :front_busy
-
-rem Ouverture du navigateur quelques secondes apres le demarrage de Vite.
-start "" /min powershell -NoProfile -WindowStyle Hidden -Command "Start-Sleep -Seconds 5; Start-Process 'http://localhost:5173'"
-
-echo.
-echo [Frontend] Demarrage sur http://localhost:5173
-echo Pour arreter : Ctrl+C ici puis fermez la fenetre Backend, ou lancez stop.bat.
-echo.
-pushd "%ROOT%frontend"
-call npm run dev -- --port 5173 --strictPort
-popd
+"%VENV_PY%" "%ROOT%backend\launcher.py" %*
+if errorlevel 2 goto :port_busy
 goto :end
 
 rem ---------------------------------------------------------------- Erreurs
 :no_node
-echo [ERREUR] Node.js et npm sont introuvables.
+echo [ERREUR] L'interface doit etre compilee, mais Node.js et npm sont introuvables.
 echo Installez Node.js, version LTS, depuis https://nodejs.org/ puis relancez start.bat.
 goto :fail
 
@@ -133,13 +115,19 @@ echo [ERREUR] L'installation des dependances Python a echoue : voir les messages
 echo Derriere un proxy d'entreprise, configurez pip ou demandez l'acces a pypi.org.
 goto :fail
 
-:npm_failed
+:npm_failed_pop
+popd
 echo [ERREUR] npm install a echoue dans le dossier frontend : voir les messages ci-dessus.
 goto :fail
 
-:front_busy
-echo [ERREUR] Le port 5173 est deja utilise, sans doute par un ancien lancement.
-echo Lancez stop.bat puis relancez start.bat.
+:build_failed_pop
+popd
+echo [ERREUR] La compilation de l'interface a echoue : voir les messages ci-dessus.
+goto :fail
+
+:port_busy
+echo [ERREUR] Le port 8020 est deja utilise par une autre application.
+echo Si c'est un ancien lancement d'Analyse documentaire, lancez stop.bat puis relancez start.bat.
 goto :fail
 
 :fail
