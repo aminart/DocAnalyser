@@ -1,19 +1,26 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core import connexions
+
+# Depuis DocAnalyser.exe (PyInstaller) : ressources dans l'exe, .env facultatif à côté de l'exe, données
+# (documents importés, historique) dans %APPDATA%\DocAnalyser, car le dossier de l'exe peut être en lecture seule.
+EMPAQUETE = bool(getattr(sys, "frozen", False))
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
-ENV_PATH = BACKEND_DIR / ".env"
+APP_DIR = Path(sys.executable).resolve().parent if EMPAQUETE else BACKEND_DIR
+ENV_PATH = APP_DIR / ".env"
 
 
 class Settings(BaseSettings):
     """Configuration lue dans backend/.env (modèle : backend/.env.example)."""
 
     model_config = SettingsConfigDict(
-        env_file=(str(ENV_PATH), "backend/.env", ".env"),
+        env_file=(str(ENV_PATH),) if EMPAQUETE else (str(ENV_PATH), "backend/.env", ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -48,7 +55,7 @@ class Settings(BaseSettings):
 
     # Paramètres généraux
     # Documents importés et historique des analyses (hors de /tmp, que macOS vide au redémarrage)
-    STORAGE_DIR: Path = BACKEND_DIR / "data"
+    STORAGE_DIR: Path = connexions.dossier_config() / "donnees" if EMPAQUETE else BACKEND_DIR / "data"
     MAX_CONCURRENT_LLM_REQUESTS: int = 4
     # Taille maximale d'une requête (tokens), en dessous de la fenêtre du modèle : utile quand l'offre limite
     # le volume par minute (ex. clé Gemini gratuite). 0 = pas de limite autre que la fenêtre du modèle.

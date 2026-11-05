@@ -10,12 +10,18 @@ Interface : design system commun **Night Navy** (le même que SpecGen et Audit e
 
 ## 1. Démarrage
 
+### Windows : l'exécutable (recommandé)
+
+`DocAnalyser.exe`, sans Python ni Node.js à installer. Le télécharger depuis la dernière release GitHub du dépôt (fichier `DocAnalyser-X.Y.Z.exe`), le copier dans un dossier, double-cliquer. Une fenêtre noire s'ouvre : la garder ouverte pendant l'utilisation (la fermer arrête l'application) ; le navigateur s'ouvre sur http://127.0.0.1:8020. Les connexions aux modèles se règlent dans l'onglet **Réglages**.
+
+Depuis l'exe, les documents importés, l'historique et les connexions sont enregistrés dans `%APPDATA%\DocAnalyser` ; un fichier `.env` facultatif se place **à côté de l'exe**. Windows SmartScreen peut afficher « Windows a protégé votre ordinateur » au premier lancement (exécutable non signé) : « Informations complémentaires » puis « Exécuter quand même ».
+
 ### Sous Linux / macOS
 ```bash
 ./start.sh
 ```
 
-### Sous Windows
+### Sous Windows, depuis les sources
 Double-cliquez simplement sur **`start.bat`** (ou lancez `start.bat` dans un terminal).
 
 Le script vérifie automatiquement l'installation, installe les dépendances manquantes si nécessaire, compile l'interface si elle est absente ou plus ancienne que ses sources, puis lance l'application sur **http://127.0.0.1:8020** et ouvre votre navigateur. Le backend sert lui-même l'interface compilée (`frontend/dist`) : un seul processus, une seule fenêtre, une seule adresse.
@@ -52,7 +58,7 @@ L'application respecte le contrat commun aux applications de la suite :
 | Options | `--port N` (port imposé : échec explicite, code 2, s'il est pris par une autre application), `--no-browser`, `--version` |
 | État | `GET /health` → `{"status": "ok", "app": "docanalyser", "name": "DocAnalyser", "version": "…"}` |
 
-Exemple : `backend/.venv/bin/python backend/launcher.py --port 8020 --no-browser`. La version se règle dans `backend/app/info.py`.
+Exemple : `DocAnalyser.exe --port 8020 --no-browser`, ou depuis les sources `backend/.venv/bin/python backend/launcher.py --port 8020 --no-browser`. La version vient du fichier `VERSION` (voir « Versions »).
 
 ### Développement de l'interface
 
@@ -104,6 +110,22 @@ En cas de quota dépassé ou de surcharge, l'analyse bascule automatiquement sur
 **Gros documents et offres limitées** : certaines offres (par exemple une clé Gemini gratuite) limitent le volume traité par minute, bien en dessous de la fenêtre théorique du modèle. Si un gros document envoyé d'un bloc est refusé, l'application bascule automatiquement sur l'analyse par lots. Pour l'éviter d'emblée, fixez `MAX_REQUEST_TOKENS` (par exemple `120000`) et réduisez `MAX_CONCURRENT_LLM_REQUESTS` à 1 ou 2.
 
 Redémarrez l'application après toute modification du `.env` (les changements faits dans l'écran Réglages s'appliquent tout de suite). Ne versionnez jamais `backend/.env` (il est exclu par `.gitignore`).
+
+## Versions
+
+Le numéro de version vit à **un seul endroit** : le fichier `VERSION`, à la racine. L'application (`/health`, `--version`) et l'exe (Propriétés › Détails sous Windows) le lisent là. Les changements sont notés au fil de l'eau dans `CHANGELOG.md`, section « Non publié ».
+
+Numérotation `MAJEUR.MINEUR.CORRECTIF` ([versionnage sémantique](https://semver.org/lang/fr/)) : correction → `patch` (2.0.0 → 2.0.1), nouvelle fonction → `minor` (2.0.1 → 2.1.0), changement qui casse l'existant (historique ou connexions enregistrés illisibles par l'ancienne version) → `major` (2.1.0 → 3.0.0).
+
+Publier une version :
+
+1. Vérifier que `CHANGELOG.md` décrit bien ce qui a changé, sous « Non publié ».
+2. `python scripts/bump_version.py minor` (ou `patch`, `major`, ou un numéro `2.2.0`) : met à jour `VERSION`, la version de l'interface et date la section du journal.
+3. Committer, fusionner sur `main`.
+4. Sur GitHub : *Releases › Draft a new release*, tag **`vX.Y.Z`** (le même numéro que `VERSION`), coller la section du journal en description, *Publish release*.
+5. Le workflow « Build Windows exe » compile l'interface, fabrique l'exe, vérifie qu'il démarre et le joint à la release sous le nom `DocAnalyser-X.Y.Z.exe` (quelques minutes). Si le tag ne correspond pas à `VERSION`, il s'arrête avec un message.
+
+À chaque push, le même workflow dépose l'exe en artefact `DocAnalyser-windows` (onglet *Actions*). Fabrication à la main, sur un PC Windows : `cd frontend && npm ci && npm run build`, puis à la racine `pip install -r backend/requirements.txt pyinstaller` et `pyinstaller --noconfirm DocAnalyser.spec` (résultat dans `dist\`).
 
 ## 3. Fidélité aux documents
 
