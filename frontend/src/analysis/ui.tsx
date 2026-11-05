@@ -94,19 +94,19 @@ export const Icons = {
 /* ---------- Fichiers ---------- */
 
 const EXT_COLORS: Record<string, [string, string]> = {
-  pdf: ['#FDECEA', '#A3261B'],
-  docx: ['#EAF0FD', '#2447B8'],
-  doc: ['#EAF0FD', '#2447B8'],
-  csv: ['#E6F4EF', '#0F6E55'],
-  xlsx: ['#E6F4EF', '#0F6E55'],
-  xls: ['#E6F4EF', '#0F6E55'],
-  pptx: ['#FCEFE6', '#A04A0C'],
-  ppt: ['#FCEFE6', '#A04A0C'],
-  vtt: ['#F2EAFB', '#6A35AE'],
-  srt: ['#F2EAFB', '#6A35AE'],
+  pdf: ['var(--nn-danger-soft)', 'var(--nn-danger-text)'],
+  docx: ['var(--ad-cat1-soft)', 'var(--ad-cat1-ink)'],
+  doc: ['var(--ad-cat1-soft)', 'var(--ad-cat1-ink)'],
+  csv: ['var(--nn-success-soft)', 'var(--nn-success-text)'],
+  xlsx: ['var(--nn-success-soft)', 'var(--nn-success-text)'],
+  xls: ['var(--nn-success-soft)', 'var(--nn-success-text)'],
+  pptx: ['var(--ad-cat2-soft)', 'var(--ad-cat2-ink)'],
+  ppt: ['var(--ad-cat2-soft)', 'var(--ad-cat2-ink)'],
+  vtt: ['var(--ad-cat4-soft)', 'var(--ad-cat4-ink)'],
+  srt: ['var(--ad-cat4-soft)', 'var(--ad-cat4-ink)'],
 };
 
-export const extColors = (ext: string): [string, string] => EXT_COLORS[ext.toLowerCase()] ?? ['#EEF0F3', '#3E4452'];
+export const extColors = (ext: string): [string, string] => EXT_COLORS[ext.toLowerCase()] ?? ['var(--nn-surface-3)', 'var(--nn-ink-muted)'];
 
 export const extOf = (name: string) => (name.includes('.') ? name.split('.').pop()!.toLowerCase() : 'txt');
 
@@ -144,12 +144,12 @@ export const FileBadge: React.FC<{ ext: string; size?: 'lg' | 'sm' }> = ({ ext, 
 /* ---------- Thèmes : couleurs ---------- */
 
 export const THEME_COLORS = [
-  { soft: '#EAF0FD', ink: '#2447B8' },
-  { soft: '#FCEFE6', ink: '#A04A0C' },
-  { soft: '#E3F3F1', ink: '#0D6B64' },
-  { soft: '#F2EAFB', ink: '#6A35AE' },
-  { soft: '#FDEAF1', ink: '#A3245E' },
-  { soft: '#EEF3E2', ink: '#4F6B12' },
+  { soft: 'var(--ad-cat1-soft)', ink: 'var(--ad-cat1-ink)' },
+  { soft: 'var(--ad-cat2-soft)', ink: 'var(--ad-cat2-ink)' },
+  { soft: 'var(--ad-cat3-soft)', ink: 'var(--ad-cat3-ink)' },
+  { soft: 'var(--ad-cat4-soft)', ink: 'var(--ad-cat4-ink)' },
+  { soft: 'var(--ad-cat5-soft)', ink: 'var(--ad-cat5-ink)' },
+  { soft: 'var(--ad-cat6-soft)', ink: 'var(--ad-cat6-ink)' },
 ];
 
 export const themeColor = (index: number) => THEME_COLORS[index % THEME_COLORS.length];
@@ -174,15 +174,15 @@ export const AppHeader: React.FC<{
   right?: React.ReactNode;
   wide?: boolean;
 }> = ({ active, onNavigate, analysisAvailable, right, wide }) => (
-  <header className="border-b border-line bg-white">
+  <header className="border-b border-line bg-surface">
     <div
       className={`mx-auto flex min-h-16 flex-wrap items-center gap-6 px-8 ${wide ? 'max-w-[1280px]' : 'max-w-[1240px]'}`}
     >
       <div className="flex items-center gap-2.5 text-base font-bold">
-        <div className="flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-ink text-white">
+        <div className="flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-primary text-white">
           <Icons.logo size={16} />
         </div>
-        <span>Analyse documentaire</span>
+        <span>DocAnalyser</span>
       </div>
       {onNavigate && (
         <nav aria-label="Navigation principale" className="flex flex-grow flex-wrap gap-1">
@@ -200,7 +200,7 @@ export const AppHeader: React.FC<{
               aria-current={active === id ? 'page' : undefined}
               onClick={() => onNavigate(id)}
               className={`rounded-lg border-none px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-                active === id ? 'bg-accent-tint font-semibold text-accent-ink' : 'bg-transparent font-medium text-muted'
+                active === id ? 'bg-accent-soft font-semibold text-accent-ink' : 'bg-transparent font-medium text-ink-muted'
               }`}
             >
               {label}
@@ -208,10 +208,56 @@ export const AppHeader: React.FC<{
           ))}
         </nav>
       )}
-      {right && <span className="ml-auto text-sm text-muted">{right}</span>}
+      {right && <span className="text-sm text-ink-muted">{right}</span>}
+      <ThemeToggle />
     </div>
   </header>
 );
+
+type Theme = 'light' | 'dark';
+
+declare global {
+  interface Window {
+    /** Posé par night-navy/theme-toggle (importé dans main.tsx). */
+    NightNavy?: { current: () => Theme; set: (theme: Theme | null) => void; toggle: () => void };
+  }
+}
+
+/** Bascule clair / sombre du design system Night Navy ; sans choix, le thème suit le système. */
+export const ThemeToggle: React.FC = () => {
+  const [theme, setTheme] = React.useState<Theme>(() => window.NightNavy?.current() ?? 'light');
+  React.useEffect(() => {
+    const sync = () => setTheme(window.NightNavy?.current() ?? 'light');
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    document.documentElement.addEventListener('nn-themechange', sync);
+    media?.addEventListener('change', sync);
+    return () => {
+      document.documentElement.removeEventListener('nn-themechange', sync);
+      media?.removeEventListener('change', sync);
+    };
+  }, []);
+  const label = theme === 'dark' ? 'Passer en mode clair' : 'Passer en mode sombre';
+  return (
+    <button
+      type="button"
+      onClick={() => window.NightNavy?.toggle()}
+      aria-label={label}
+      title={label}
+      className="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-none bg-transparent text-ink-muted hover:bg-surface-3 hover:text-ink"
+    >
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        {theme === 'dark' ? (
+          <>
+            <circle cx="12" cy="12" r="4" />
+            <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+          </>
+        ) : (
+          <path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z" />
+        )}
+      </svg>
+    </button>
+  );
+};
 
 /* ---------- Bandeau de rapport ---------- */
 
@@ -243,7 +289,7 @@ const ExportMenu: React.FC<{ analysisId: string }> = ({ analysisId }) => {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex min-h-11 items-center gap-2 rounded-[10px] border border-line-strong bg-white px-4 font-semibold text-ink hover:bg-page"
+        className="inline-flex min-h-11 items-center gap-2 rounded-[10px] border border-line-strong bg-surface px-4 font-semibold text-ink hover:bg-bg"
       >
         <Icons.download size={17} />
         Exporter
@@ -251,7 +297,7 @@ const ExportMenu: React.FC<{ analysisId: string }> = ({ analysisId }) => {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 top-[calc(100%+6px)] z-10 flex min-w-[180px] flex-col rounded-xl border border-line bg-white p-1.5 shadow-lg"
+          className="absolute right-0 top-[calc(100%+6px)] z-10 flex min-w-[180px] flex-col rounded-xl border border-line bg-surface p-1.5 shadow-lg"
         >
           {(
             [
@@ -265,7 +311,7 @@ const ExportMenu: React.FC<{ analysisId: string }> = ({ analysisId }) => {
               role="menuitem"
               href={analysisApi.exportUrl(analysisId, fmt)}
               onClick={() => setOpen(false)}
-              className="rounded-lg px-3 py-2 text-sm text-ink no-underline hover:bg-page"
+              className="rounded-lg px-3 py-2 text-sm text-ink no-underline hover:bg-bg"
             >
               {label}
             </a>
@@ -295,12 +341,12 @@ export const ReportBanner: React.FC<{
   };
 
   return (
-    <div className="border-b border-line bg-white">
+    <div className="border-b border-line bg-surface">
       <div className="mx-auto flex max-w-[1280px] flex-col gap-4 px-8 pb-[22px] pt-7">
         <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
           <div className="flex min-w-0 flex-[999_1_480px] flex-col gap-1.5">
-            <span className="text-[13px] text-muted">
-              <a href="#/historique" className="text-muted underline-offset-2 hover:text-accent-ink hover:underline">
+            <span className="text-[13px] text-ink-muted">
+              <a href="#/historique" className="text-ink-muted underline-offset-2 hover:text-accent-ink hover:underline">
                 Historique
               </a>{' '}
               / {formatDate(analysis.created_at)}
@@ -312,7 +358,7 @@ export const ReportBanner: React.FC<{
               <button
                 type="button"
                 onClick={copy}
-                className="inline-flex min-h-11 items-center gap-2 rounded-[10px] border border-line-strong bg-white px-4 font-semibold text-ink hover:bg-page"
+                className="inline-flex min-h-11 items-center gap-2 rounded-[10px] border border-line-strong bg-surface px-4 font-semibold text-ink hover:bg-bg"
               >
                 {copied ? <Icons.check size={17} /> : <Icons.copy size={17} />}
                 {copied ? 'Copié' : 'Copier'}
@@ -322,7 +368,7 @@ export const ReportBanner: React.FC<{
             <button
               type="button"
               onClick={onNewAnalysis}
-              className="inline-flex min-h-11 items-center gap-2 rounded-[10px] border-none bg-ink px-4 font-semibold text-white hover:opacity-90"
+              className="inline-flex min-h-11 items-center gap-2 rounded-[10px] border-none bg-primary px-4 font-semibold text-white hover:bg-primary-hover"
             >
               Nouvelle analyse
             </button>
@@ -334,7 +380,7 @@ export const ReportBanner: React.FC<{
               <span
                 key={c}
                 className={`rounded-full px-3 py-[5px] text-[13px] ${
-                  i === 0 ? 'bg-accent-tint font-semibold text-accent-ink' : 'bg-chip text-chip-ink'
+                  i === 0 ? 'bg-accent-soft font-semibold text-accent-ink' : 'bg-surface-3 text-ink-muted'
                 }`}
               >
                 {c}
@@ -348,7 +394,7 @@ export const ReportBanner: React.FC<{
 };
 
 export const Disclaimer: React.FC = () => (
-  <p className="m-0 text-center text-[13px] text-muted">
+  <p className="m-0 text-center text-[13px] text-ink-muted">
     Synthèse générée par un modèle de langage : vérifiez les points importants dans les sources citées.
   </p>
 );
@@ -360,11 +406,11 @@ export const modelLabel = (a: Analysis) => (a.model_fallback ? `${a.model_name} 
 /** Signale un verbatim qui ne figure pas mot pour mot dans les documents. */
 export const QuoteNotice: React.FC<{ check: QuoteCheck }> = ({ check }) =>
   check === 'close' ? (
-    <span className="text-xs font-semibold text-[#8A3E0A]">
+    <span className="text-xs font-semibold text-warning-text">
       Citation légèrement reformulée par rapport au document
     </span>
   ) : check === 'absent' ? (
-    <span className="inline-flex w-fit items-center gap-1.5 rounded-md bg-[#FCE4E2] px-2 py-0.5 text-xs font-semibold text-[#9B2216]">
+    <span className="inline-flex w-fit items-center gap-1.5 rounded-md bg-danger-soft px-2 py-0.5 text-xs font-semibold text-danger-text">
       Citation introuvable dans les documents : à vérifier
     </span>
   ) : null;
@@ -372,7 +418,7 @@ export const QuoteNotice: React.FC<{ check: QuoteCheck }> = ({ check }) =>
 /** Indique qu'un corpus volumineux a été analysé par lots, et ce qu'il en reste hors thèmes. */
 export const CoverageNote: React.FC<{ coverage?: Coverage | null }> = ({ coverage }) =>
   coverage ? (
-    <p className="m-0 text-xs leading-normal text-muted">
+    <p className="m-0 text-xs leading-normal text-ink-muted">
       Corpus volumineux analysé en {coverage.batches} lots : {coverage.items} éléments extraits puis rédigés depuis les
       passages d'origine.
       {coverage.unassigned > 0 && ` ${coverage.unassigned} éléments sans thème dédié sont regroupés dans « Autres points ».`}

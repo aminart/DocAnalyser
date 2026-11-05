@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 # Doit être défini avant tout import de l'application (la configuration est lue à l'import).
-os.environ["STORAGE_DIR"] = tempfile.mkdtemp(prefix="analyse-documentaire-tests-")
+os.environ["STORAGE_DIR"] = tempfile.mkdtemp(prefix="docanalyser-tests-")
 
 import pytest  # noqa: E402
 

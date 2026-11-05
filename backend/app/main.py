@@ -13,7 +13,7 @@ from app.info import APP_ID, APP_NAME, VERSION
 from app.services.analysis_service import load_history
 
 app = FastAPI(
-    title="Analyse documentaire API",
+    title="DocAnalyser API",
     description="Import de documents multi-formats et synthèses structurées par thèmes ou par parcours",
     version=VERSION,
 )

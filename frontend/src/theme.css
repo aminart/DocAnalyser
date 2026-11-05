@@ -1,24 +1,37 @@
 /**
- * Analyse documentaire — palette de l'interface
- * Jetons utilisés par Tailwind (voir tailwind.config.js) et par les styles en ligne.
+ * DocAnalyser — couleurs métier, en complément du design system commun Night Navy (night-navy.css) :
+ * palette des thèmes et des types de fichiers, surlignage des sources. Chaque couleur a sa version
+ * sombre, sous les mêmes noms. Tout le reste (fonds, textes, bordures, boutons, états) vient des jetons --nn-*.
  */
 
 :root {
-  --ad-ink: #15171c;          /* Texte principal, pastilles d'étape */
-  --ad-page: #f4f5f8;         /* Fond de page */
-  --ad-line: #e2e5eb;         /* Bordures de cartes */
-  --ad-line-strong: #d5d9e2;  /* Bordures de boutons secondaires */
-  --ad-hair: #eef0f4;         /* Séparateurs internes */
-  --ad-muted: #5a6070;        /* Textes d'aide */
-  --ad-body: #4a5060;         /* Textes descriptifs */
-  --ad-prose: #3a3e48;        /* Corps de texte serif */
-  --ad-chip: #f1f2f6;         /* Pastilles neutres */
-  --ad-chip-ink: #3e4452;
-  --ad-accent: #3346d3;       /* Accent principal */
-  --ad-accent-hover: #2433a8;
-  --ad-accent-soft: #f3f4fe;  /* Fond d'option sélectionnée */
-  --ad-accent-tint: #eef0fd;  /* Navigation active, badges */
-  --ad-accent-ink: #2433a8;
-  --ad-ok: #0f6e55;
-  --ad-ok-soft: #e6f4ef;
+  --ad-cat1-soft: #eaf0fd; --ad-cat1-ink: #2447b8;  /* bleu */
+  --ad-cat2-soft: #fcefe6; --ad-cat2-ink: #a04a0c;  /* orange */
+  --ad-cat3-soft: #e3f3f1; --ad-cat3-ink: #0d6b64;  /* sarcelle */
+  --ad-cat4-soft: #f2eafb; --ad-cat4-ink: #6a35ae;  /* violet */
+  --ad-cat5-soft: #fdeaf1; --ad-cat5-ink: #a3245e;  /* rose */
+  --ad-cat6-soft: #eef3e2; --ad-cat6-ink: #4f6b12;  /* olive */
+  --ad-surlignage: #fff6cc;                          /* passage cité, dans le panneau des sources */
+}
+
+/* Mêmes valeurs dans les deux blocs sombres : préférence système, puis thème forcé (data-theme). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ad-cat1-soft: #172447; --ad-cat1-ink: #9db7ff;
+    --ad-cat2-soft: #2e1f14; --ad-cat2-ink: #f2b07a;
+    --ad-cat3-soft: #10302d; --ad-cat3-ink: #6fd6cb;
+    --ad-cat4-soft: #251e3d; --ad-cat4-ink: #c9aef5;
+    --ad-cat5-soft: #33162a; --ad-cat5-ink: #f29ac4;
+    --ad-cat6-soft: #1f2a12; --ad-cat6-ink: #b5d07a;
+    --ad-surlignage: #3a3415;
+  }
+}
+:root[data-theme="dark"] {
+  --ad-cat1-soft: #172447; --ad-cat1-ink: #9db7ff;
+  --ad-cat2-soft: #2e1f14; --ad-cat2-ink: #f2b07a;
+  --ad-cat3-soft: #10302d; --ad-cat3-ink: #6fd6cb;
+  --ad-cat4-soft: #251e3d; --ad-cat4-ink: #c9aef5;
+  --ad-cat5-soft: #33162a; --ad-cat5-ink: #f29ac4;
+  --ad-cat6-soft: #1f2a12; --ad-cat6-ink: #b5d07a;
+  --ad-surlignage: #3a3415;
 }

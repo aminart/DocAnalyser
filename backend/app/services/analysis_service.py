@@ -1,4 +1,4 @@
-"""Pipeline d'analyse documentaire structurée (API v2, interface « Analyse documentaire »).
+"""Pipeline d'analyse documentaire structurée (API v2, interface DocAnalyser).
 
 Étapes suivies par l'écran de progression :
   1. Lecture des documents          (0 → 15 %)

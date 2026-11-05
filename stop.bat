@@ -1,10 +1,10 @@
 @echo off
 setlocal EnableExtensions
 chcp 65001 >nul
-title Arret Analyse documentaire
+title Arret DocAnalyser
 
 echo ============================================================
-echo   Arret d'Analyse documentaire : port 8020
+echo   Arret de DocAnalyser : port 8020
 echo ============================================================
 echo.
 
