@@ -33,7 +33,7 @@ LIBELLES_TYPE = {"openai": "Compatible OpenAI", "gemini": "Google Gemini", "anth
 
 
 class ConnexionForm(BaseModel):
-    kind: Literal["openai", "gemini", "anthropic"] = "openai"
+    kind: Literal["openai"] = "openai"  # l'écran Réglages n'enregistre que des connexions compatibles OpenAI
     name: str = ""
     api_base: str = ""
     api_key: str | None = None  # None : garder la clé enregistrée
@@ -44,6 +44,7 @@ class ConnexionForm(BaseModel):
 
 
 class TestForm(ConnexionForm):
+    kind: Literal["openai", "gemini", "anthropic"] = "openai"  # GEMINI / ANTHROPIC du .env restent testables
     id: str | None = None  # connexion enregistrée : sa clé et son certificat servent si rien d'autre n'est fourni
     certificate_b64: str | None = None  # certificat choisi mais pas encore enregistré
 

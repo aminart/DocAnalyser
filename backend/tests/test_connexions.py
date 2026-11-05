@@ -56,17 +56,19 @@ def test_ajouter_une_connexion_sans_jamais_renvoyer_la_cle(client):
     assert spec.provider.api_key == "sk-passerelle-1234567890ABCD" and spec.provider.api_base == "https://passerelle.interne/v1"
 
 
-def test_plusieurs_connexions_et_types(client):
+def test_plusieurs_connexions(client):
     creer(client)
-    creer(client, kind="gemini", name="", api_base="", api_key="cle-gemini-12345678", models=["gemini-2.5-flash"])
-    creer(client, kind="anthropic", name="Claude test", api_base="", api_key=None, models=["claude-sonnet-4-5"])
+    creer(client, name="", api_base="http://localhost:11434/v1", api_key=None, models=["llama3", "mistral-small"])
     r = client.get("/api/v2/connections").json()["connections"]
-    assert [c["name"] for c in r] == ["Passerelle interne", "Google Gemini", "Claude test"]
-    gemini = next(c for c in r if c["kind"] == "gemini")
-    assert gemini["api_base"].startswith("https://generativelanguage.googleapis.com") and gemini["context_tokens"] == 1_000_000
+    assert [c["name"] for c in r] == ["Passerelle interne", "Passerelle"]
+    assert r[1]["context_tokens"] == 128_000 and not r[1]["has_api_key"]
     modeles = {m["name"]: m for m in client.get("/api/v2/models").json()}
-    assert modeles["gemini-2.5-flash"]["configured"] is True
-    assert modeles["claude-sonnet-4-5"]["configured"] is False  # Claude exige une clé
+    assert modeles["llama3"]["configured"] is True
+
+
+def test_seul_le_type_compatible_openai_est_enregistrable(client):
+    r = client.post("/api/v2/connections", json={"kind": "gemini", "name": "x", "api_key": "cle", "models": ["gemini-2.5-flash"]})
+    assert r.status_code == 422
 
 
 def test_cle_gardee_ou_effacee_et_suppression(client):

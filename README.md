@@ -69,10 +69,9 @@ Les modèles se configurent dans l'application, onglet **Réglages**, avec la m�
 
 | Champ | Rôle |
 |---|---|
-| Type | **Compatible OpenAI** (passerelle interne, Mistral, vLLM, Ollama, LM Studio, Azure…), **Google Gemini** ou **Anthropic Claude**. |
 | Nom | Affiché à côté de chaque modèle au moment de lancer une analyse. |
-| URL du service | Pour une connexion compatible OpenAI (Gemini et Claude ont leur adresse fixe). |
-| Clé API | **Chiffrée avec le compte Windows** (DPAPI), jamais réaffichée en clair. Facultative pour un serveur sans clé (Ollama), obligatoire pour Gemini et Claude. |
+| URL du service | Adresse du service **compatible OpenAI** : passerelle interne, Mistral, vLLM, Ollama, LM Studio, Azure… |
+| Clé API | **Chiffrée avec le compte Windows** (DPAPI), jamais réaffichée en clair. Facultative pour un serveur sans clé (Ollama, LM Studio). |
 | Certificat de l'entreprise *(facultatif)* | `.crt` (PEM ou DER) de l'autorité qui a signé le certificat HTTPS du serveur, copié dans l'application ; expiration affichée. Les autorités internes sans extension « key usage » sont acceptées (chaîne et nom du serveur vérifiés). |
 | Modèles | Autant que voulu. Le profil (approfondi, équilibré, rapide) est déduit du nom. |
 | Options avancées | Fenêtre de contexte (tokens). |

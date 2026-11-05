@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { connectionsApi, MODELS_CHANGED } from './api';
-import { Connection, ConnectionForm, ConnectionKind, ConnectionsState, ConnectionTest } from './types';
+import { Connection, ConnectionForm, ConnectionsState, ConnectionTest } from './types';
 
 /**
  * Réglages : connexions aux modèles. Même logique et même fenêtre que les écrans de SpecGen et d'Audit
@@ -8,11 +8,6 @@ import { Connection, ConnectionForm, ConnectionKind, ConnectionsState, Connectio
  * connexions et, pour chacune, plusieurs modèles.
  */
 
-const KINDS: { id: ConnectionKind; label: string; hint: string }[] = [
-  { id: 'openai', label: 'Compatible OpenAI', hint: 'Passerelle interne, Mistral, vLLM, Ollama, LM Studio, Azure…' },
-  { id: 'gemini', label: 'Google Gemini', hint: 'Clé Google AI Studio' },
-  { id: 'anthropic', label: 'Anthropic Claude', hint: 'Clé de la console Anthropic' },
-];
 const EXPIRY_WARNING_DAYS = 30;
 
 const date = (iso: string) => new Date(iso).toLocaleDateString('fr-FR');
@@ -106,7 +101,7 @@ const ConnectionEditor: React.FC<{
 }> = ({ existing, onSaved, onCancel }) => {
   const [form, setForm] = useState<ConnectionForm>(() =>
     existing
-      ? { kind: existing.kind, name: existing.name, api_base: existing.kind === 'openai' ? existing.api_base : '', api_key: existing.has_api_key ? null : '',
+      ? { kind: 'openai', name: existing.name, api_base: existing.api_base, api_key: existing.has_api_key ? null : '',
           models: existing.models, context_tokens: existing.context_tokens }
       : emptyForm(),
   );
@@ -124,10 +119,7 @@ const ConnectionEditor: React.FC<{
     // Le dernier test ne vaut plus si l'adresse ou la clé change (le certificat et le type sont traités à part).
     if (key === 'api_base' || key === 'api_key') setTest(null);
   };
-  const isOpenAI = form.kind === 'openai';
-  const keyRequired = !isOpenAI;
-  const hasKey = form.api_key === null ? !!existing?.has_api_key : form.api_key.trim().length > 0;
-  const complete = (isOpenAI ? /^https?:\/\//i.test(form.api_base.trim()) : hasKey) && form.models.length + (newModel.trim() ? 1 : 0) > 0;
+  const complete = /^https?:\/\//i.test(form.api_base.trim()) && form.models.length + (newModel.trim() ? 1 : 0) > 0;
   const failed = test && !test.ok ? test.field : null;
   const certificate = dropCert ? null : existing?.certificate ?? null;
   const exp = expiry(certificate?.expires_at);
@@ -195,43 +187,15 @@ const ConnectionEditor: React.FC<{
       <div className="flex flex-col gap-6 px-6 pb-6 pt-4 sm:px-8">
         {test && <TestBanner test={test} />}
 
-        <Field label="Type de service">
-          <div role="radiogroup" aria-label="Type de service" className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {KINDS.map((k) => {
-              const on = form.kind === k.id;
-              return (
-                <button
-                  key={k.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={on}
-                  onClick={() => {
-                    set('kind', k.id);
-                    setTest(null);
-                  }}
-                  className={`flex flex-col items-start gap-0.5 rounded-lg border px-3.5 py-2.5 text-left ${
-                    on ? 'border-[1.5px] border-accent bg-accent-softer' : 'border-line-strong bg-surface hover:bg-surface-3'
-                  }`}
-                >
-                  <span className="text-sm font-semibold text-ink">{k.label}</span>
-                  <span className="text-xs text-ink-muted">{k.hint}</span>
-                </button>
-              );
-            })}
-          </div>
-        </Field>
-
         <Field label="Nom" htmlFor="c-name" hint="Affiché à côté de chaque modèle, au moment de choisir le modèle d'une analyse.">
           <input id="c-name" className={inputClass()} value={form.name} onChange={(e) => set('name', e.target.value)}
-            placeholder={KINDS.find((k) => k.id === form.kind)?.label === 'Compatible OpenAI' ? 'Passerelle interne' : KINDS.find((k) => k.id === form.kind)?.label} />
+            placeholder="Passerelle interne" />
         </Field>
 
-        {isOpenAI && (
-          <Field label="URL du service" htmlFor="c-url" hint="Exemples : https://passerelle.mon-entreprise.fr/v1 · Ollama : http://localhost:11434/v1">
-            <input id="c-url" type="url" className={inputClass(failed === 'api_base')} value={form.api_base}
-              onChange={(e) => set('api_base', e.target.value)} placeholder="https://llm.mon-entreprise.fr/v1" />
-          </Field>
-        )}
+        <Field label="URL du service" htmlFor="c-url" hint="Exemples : https://passerelle.mon-entreprise.fr/v1 · Ollama : http://localhost:11434/v1">
+          <input id="c-url" type="url" className={inputClass(failed === 'api_base')} value={form.api_base}
+            onChange={(e) => set('api_base', e.target.value)} placeholder="https://llm.mon-entreprise.fr/v1" />
+        </Field>
 
         {form.api_key === null ? (
           <Field label="Clé API" hint="Chiffrée avec votre compte Windows : elle n'est jamais réaffichée en clair.">
@@ -242,8 +206,8 @@ const ConnectionEditor: React.FC<{
             </div>
           </Field>
         ) : (
-          <Field label="Clé API" htmlFor="c-key" optional={!keyRequired}
-            hint={keyRequired ? undefined : 'Laissez vide pour un serveur qui n\'en demande pas (Ollama, LM Studio sur ce poste).'}>
+          <Field label="Clé API" htmlFor="c-key" optional
+            hint="Laissez vide pour un serveur qui n'en demande pas (Ollama, LM Studio sur ce poste).">
             <div className="flex gap-2">
               <input id="c-key" type={showKey ? 'text' : 'password'} className={inputClass(failed === 'api_key')} value={form.api_key}
                 onChange={(e) => set('api_key', e.target.value)} placeholder="Collez votre clé API" autoComplete="off" />
@@ -260,43 +224,41 @@ const ConnectionEditor: React.FC<{
           </Field>
         )}
 
-        {isOpenAI && (
-          <Field label="Certificat de l'entreprise" optional={!certificate && !pendingCert}
-            hint={certificate || pendingCert ? undefined : 'Seulement pour une adresse https dont le certificat est signé par une autorité interne. Le fichier est copié dans l\'application.'}>
-            {certificate || pendingCert ? (
-              <div className={`flex items-center gap-3 rounded-lg bg-surface px-3.5 py-3 ${failed === 'certificate' ? 'border-[1.5px] border-danger' : 'border border-line-strong'}`}>
-                <Svg d={failed === 'certificate' || exp?.tone === 'error' ? I.shieldAlert : I.shield} size={22}
-                  className={`shrink-0 ${failed === 'certificate' || exp?.tone === 'error' ? 'text-danger-text' : 'text-accent'}`} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{pendingCert?.name ?? certificate?.name}</div>
-                  <div className={`text-xs ${failed === 'certificate' || exp?.tone === 'error' ? 'text-danger-text' : exp?.tone === 'warning' ? 'text-warning-text' : 'text-ink-muted'}`}>
-                    {failed === 'certificate'
-                      ? 'Non reconnu par le serveur'
-                      : pendingCert
-                        ? 'Sera enregistré avec la connexion'
-                        : [certificate?.imported_at && `Importé le ${date(certificate.imported_at)}`, exp?.label].filter(Boolean).join(' · ')}
-                  </div>
+        <Field label="Certificat de l'entreprise" optional={!certificate && !pendingCert}
+          hint={certificate || pendingCert ? undefined : 'Seulement pour une adresse https dont le certificat est signé par une autorité interne. Le fichier est copié dans l\'application.'}>
+          {certificate || pendingCert ? (
+            <div className={`flex items-center gap-3 rounded-lg bg-surface px-3.5 py-3 ${failed === 'certificate' ? 'border-[1.5px] border-danger' : 'border border-line-strong'}`}>
+              <Svg d={failed === 'certificate' || exp?.tone === 'error' ? I.shieldAlert : I.shield} size={22}
+                className={`shrink-0 ${failed === 'certificate' || exp?.tone === 'error' ? 'text-danger-text' : 'text-accent'}`} />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{pendingCert?.name ?? certificate?.name}</div>
+                <div className={`text-xs ${failed === 'certificate' || exp?.tone === 'error' ? 'text-danger-text' : exp?.tone === 'warning' ? 'text-warning-text' : 'text-ink-muted'}`}>
+                  {failed === 'certificate'
+                    ? 'Non reconnu par le serveur'
+                    : pendingCert
+                      ? 'Sera enregistré avec la connexion'
+                      : [certificate?.imported_at && `Importé le ${date(certificate.imported_at)}`, exp?.label].filter(Boolean).join(' · ')}
                 </div>
-                <button type="button" className={smallButton} onClick={() => certInput.current?.click()}>Remplacer</button>
-                <button type="button" className={smallButton} aria-label="Retirer le certificat"
-                  onClick={() => { setPendingCert(null); setDropCert(true); setTest(null); }}>
-                  Retirer
-                </button>
               </div>
-            ) : (
-              <button type="button" onClick={() => certInput.current?.click()}
-                className={`flex min-h-[52px] items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed bg-transparent text-sm font-medium text-accent hover:border-accent hover:bg-accent-softer ${failed === 'certificate' ? 'border-danger' : 'border-line-dashed'}`}>
-                <Svg d={I.plus} /> Choisir le fichier .crt
+              <button type="button" className={smallButton} onClick={() => certInput.current?.click()}>Remplacer</button>
+              <button type="button" className={smallButton} aria-label="Retirer le certificat"
+                onClick={() => { setPendingCert(null); setDropCert(true); setTest(null); }}>
+                Retirer
               </button>
-            )}
-            <input ref={certInput} type="file" accept=".crt,.pem,.cer" className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) { setPendingCert(file); setDropCert(false); setTest(null); }
-                e.target.value = '';
-              }} />
-          </Field>
-        )}
+            </div>
+          ) : (
+            <button type="button" onClick={() => certInput.current?.click()}
+              className={`flex min-h-[52px] items-center justify-center gap-2 rounded-lg border-[1.5px] border-dashed bg-transparent text-sm font-medium text-accent hover:border-accent hover:bg-accent-softer ${failed === 'certificate' ? 'border-danger' : 'border-line-dashed'}`}>
+              <Svg d={I.plus} /> Choisir le fichier .crt
+            </button>
+          )}
+          <input ref={certInput} type="file" accept=".crt,.pem,.cer" className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) { setPendingCert(file); setDropCert(false); setTest(null); }
+              e.target.value = '';
+            }} />
+        </Field>
 
         <Field label="Modèles" hint="Chaque modèle sera proposé au moment de lancer une analyse. Le profil (approfondi, équilibré, rapide) est déduit de son nom.">
           <div className={`flex flex-wrap items-center gap-2 rounded-lg border bg-surface px-2.5 py-2 ${failed === 'models' ? 'border-[1.5px] border-danger' : 'border-line-strong'}`}>
@@ -347,7 +309,7 @@ const ConnectionEditor: React.FC<{
           <div className="mt-4 max-w-[320px]">
             <Field label="Fenêtre de contexte (tokens)" htmlFor="c-ctx" hint="Taille des documents que le modèle accepte en une requête : au-delà, l'analyse découpe le corpus.">
               <input id="c-ctx" type="number" min={1000} className={inputClass()} value={form.context_tokens ?? ''}
-                placeholder={form.kind === 'gemini' ? '1 000 000' : form.kind === 'anthropic' ? '200 000' : '128 000'}
+                placeholder="128 000"
                 onChange={(e) => set('context_tokens', e.target.value ? Number(e.target.value) : null)} />
             </Field>
           </div>
@@ -361,7 +323,7 @@ const ConnectionEditor: React.FC<{
       <div className="flex flex-wrap items-center gap-3 rounded-b-xl border-t border-line bg-surface-2 px-6 py-4 sm:px-8">
         <p className="m-0 flex-[1_1_200px] text-[13px] text-ink-subtle">
           {!complete
-            ? isOpenAI ? "Renseignez l'URL et au moins un modèle pour tester la connexion." : 'Renseignez la clé API et au moins un modèle.'
+            ? "Renseignez l'URL et au moins un modèle pour tester la connexion."
             : test && !test.ok ? "Vous pouvez enregistrer malgré l'échec, l'analyse risque de ne pas fonctionner." : "Testez la connexion avant d'enregistrer."}
         </p>
         <button type="button" onClick={onCancel} className="min-h-[44px] rounded-lg border-none bg-transparent px-3 text-sm font-medium text-ink-muted hover:text-ink">
@@ -408,7 +370,6 @@ const ConnectionCard: React.FC<{
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="m-0 text-[17px] font-bold">{c.name}</h3>
-            <span className="rounded-md bg-surface-3 px-2 py-0.5 text-xs font-medium text-ink-muted">{c.kind_label}</span>
             {fromEnv && <span className="rounded-md bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning-text">Fichier .env · {c.env_prefix}</span>}
           </div>
           <p className="m-0 mt-1 break-all text-[13px] text-ink-muted">{c.api_base}</p>
@@ -499,7 +460,7 @@ export const SettingsScreen: React.FC = () => {
       <header>
         <h1 className="m-0 text-[34px] font-bold leading-[1.15] tracking-[-0.02em]">Réglages</h1>
         <p className="m-0 mt-2 text-ink-muted">
-          Connexions aux modèles de langage : une passerelle de votre organisation, un modèle sur ce poste, ou une clé Gemini ou Claude. Chaque connexion peut proposer plusieurs modèles.
+          Connexions aux modèles de langage : la passerelle compatible OpenAI de votre organisation, ou un modèle sur ce poste (Ollama, LM Studio). Chaque connexion peut proposer plusieurs modèles.
         </p>
       </header>
 
@@ -532,7 +493,7 @@ export const SettingsScreen: React.FC = () => {
         {state.connections.length === 0 && editing !== 'new' && (
           <div className="flex flex-col items-start gap-2 rounded-xl border border-dashed border-line-dashed bg-surface px-6 py-8">
             <p className="m-0 font-semibold">Aucune connexion</p>
-            <p className="m-0 text-sm text-ink-muted">Ajoutez la passerelle fournie par votre service informatique, ou une clé Gemini ou Claude, pour lancer des analyses.</p>
+            <p className="m-0 text-sm text-ink-muted">Ajoutez la passerelle fournie par votre service informatique, ou un modèle sur ce poste, pour lancer des analyses.</p>
           </div>
         )}
         {state.connections.map((c) =>

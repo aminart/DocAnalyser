@@ -1,8 +1,8 @@
 """Connexions aux modèles enregistrées depuis l'écran Réglages, avec plusieurs connexions et plusieurs modèles.
 
 Même logique que SpecGen et Audit ergonomique, étendue à plusieurs connexions :
-- chaque connexion a un type (compatible OpenAI, Google Gemini, Anthropic Claude), un nom, une adresse, une clé,
-  un certificat facultatif et sa liste de modèles ;
+- chaque connexion est compatible OpenAI (passerelle interne, vLLM, Ollama, LM Studio…) : un nom, une adresse,
+  une clé facultative, un certificat facultatif et sa liste de modèles ;
 - la clé est chiffrée avec le compte Windows (DPAPI) et n'est jamais renvoyée en clair à l'interface ;
 - le certificat (.crt, PEM ou DER) est copié dans le dossier de l'utilisateur ;
 - tout est enregistré dans %APPDATA%\\DocAnalyser (DOCANALYSER_CONFIG pour un autre dossier).
