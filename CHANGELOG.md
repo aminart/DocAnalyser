@@ -11,7 +11,7 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
   push et joint à chaque release. Depuis l'exe, documents et historique sont dans `%APPDATA%\DocAnalyser`,
   le `.env` facultatif à côté de l'exe.
 - Versionnement : fichier `VERSION` unique, ce journal, `scripts/bump_version.py`.
-- Onglet Réglages : plusieurs connexions aux modèles (compatible OpenAI, Gemini, Claude), chacune avec ses
+- Onglet Réglages : plusieurs connexions aux modèles compatibles OpenAI (passerelle interne, Ollama, LM Studio…), chacune avec ses
   modèles, clé chiffrée, certificat `.crt`, test avec diagnostic et modèles du serveur proposés à l'ajout.
   Les fournisseurs du `.env` restent valables, en lecture seule.
 - Mode sombre.
