@@ -165,7 +165,7 @@ export const Emphasis: React.FC<{ text: string }> = ({ text }) => (
 
 /* ---------- En-tête ---------- */
 
-export type View = 'new' | 'analysis' | 'history';
+export type View = 'new' | 'analysis' | 'history' | 'settings';
 
 export const AppHeader: React.FC<{
   active?: View;
@@ -191,6 +191,7 @@ export const AppHeader: React.FC<{
               ['new', 'Nouvelle analyse', true],
               ['analysis', 'Analyse', analysisAvailable],
               ['history', 'Historique', true],
+              ['settings', 'Réglages', true],
             ] as const
           ).map(([id, label, enabled]) => (
             <button

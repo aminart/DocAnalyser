@@ -192,3 +192,54 @@ export interface Analysis {
   markdown: string;
   error: string | null;
 }
+
+/* ---------- Réglages : connexions aux modèles ---------- */
+
+export type ConnectionKind = 'openai' | 'gemini' | 'anthropic';
+
+export interface ConnectionTest {
+  ok: boolean;
+  /** Champ en cause : api_base, api_key, certificate, models. */
+  field: string | null;
+  title: string;
+  message: string;
+  at: string;
+  /** Modèles proposés par le serveur (null s'il ne les liste pas). */
+  available?: string[] | null;
+  missing?: string[];
+}
+
+export interface Connection {
+  id: string;
+  /** app : enregistrée depuis l'écran ; env : déclarée dans le fichier .env (lecture seule). */
+  source: 'app' | 'env';
+  env_prefix?: string;
+  kind: ConnectionKind;
+  kind_label: string;
+  name: string;
+  api_base: string;
+  has_api_key: boolean;
+  api_key_hint: string;
+  certificate: { name: string; imported_at?: string; expires_at?: string } | null;
+  models: string[];
+  context_tokens: number;
+  max_output_tokens: number;
+  last_test: ConnectionTest | null;
+}
+
+export interface ConnectionsState {
+  connections: Connection[];
+  env_file: string | null;
+  storage_dir: string;
+  created?: string;
+}
+
+export interface ConnectionForm {
+  kind: ConnectionKind;
+  name: string;
+  api_base: string;
+  /** null : garder la clé enregistrée. */
+  api_key: string | null;
+  models: string[];
+  context_tokens: number | null;
+}

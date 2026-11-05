@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Callable, Literal
 
 
+from app.core import connexions
 from app.core.config import settings
 from app.services import llm_client, store
 from app.services.parser_service import AnchoredTextBlock, MultiFormatDocumentParser
@@ -106,10 +107,11 @@ def _names(raw: str) -> tuple[str, ...]:
 
 
 def providers() -> list[ProviderConf]:
-    """Fournisseurs déclarés dans backend/.env (voir .env.example).
+    """Fournisseurs : ceux du fichier .env (voir .env.example), puis les connexions de l'écran Réglages.
 
     - CUSTOM_LLM / CUSTOM_LLM_2 : endpoints compatibles OpenAI.
     - GEMINI / ANTHROPIC : clés de test, proposées seulement si la clé est renseignée.
+    - Connexions de l'écran Réglages (app/core/connexions.py) : autant que voulu, chacune avec ses modèles.
     """
     out = [
         ProviderConf(
@@ -136,7 +138,17 @@ def providers() -> list[ProviderConf]:
             base = llm_client.GEMINI_BASE if kind == "gemini" else llm_client.ANTHROPIC_BASE
             out.append(ProviderConf(key, kind, name, api_key.strip(), base, (ca or "").strip(), ctx, _names(models),
                                     max_output_tokens=32_000))
+    for c in connexions.lister():
+        base = {"gemini": llm_client.GEMINI_BASE, "anthropic": llm_client.ANTHROPIC_BASE}.get(c.kind, c.api_base)
+        out.append(ProviderConf(
+            key=c.id, kind=c.kind, name=c.name, api_key=connexions.cle(c), api_base=base.rstrip("/"),
+            ca_bundle=connexions.certificat(c), context_tokens=c.context_tokens, models=tuple(c.models),
+            max_output_tokens=c.max_output_tokens or (32_000 if c.kind != "openai" else 0),
+        ))
     return out
+
+
+ENV_PROVIDERS = ("CUSTOM_LLM", "CUSTOM_LLM_2", "GEMINI", "ANTHROPIC")
 
 
 # Profil déduit du nom du modèle : la liste elle-même vient uniquement du .env.
@@ -171,7 +183,7 @@ def all_models() -> list[ModelSpec]:
 
 def is_configured(spec: ModelSpec) -> bool:
     if spec.provider.kind != "openai":
-        return True  # les fournisseurs de test ne sont listés que si leur clé est renseignée
+        return bool(spec.provider.api_key)  # Gemini et Claude exigent une clé
     # La clé est facultative : un endpoint interne (vLLM, Ollama) peut ne pas en exiger.
     return bool(spec.provider.api_base)
 

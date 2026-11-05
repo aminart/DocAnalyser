@@ -10,6 +10,8 @@ leurs points d'accès compatibles OpenAI.
 from __future__ import annotations
 
 import json
+import ssl
+from pathlib import Path
 from typing import Any, Callable
 
 import httpx
@@ -59,11 +61,29 @@ _CLIENTS: dict[str, httpx.AsyncClient] = {}
 
 
 def _client(ca_bundle: str) -> httpx.AsyncClient:
-    key = ca_bundle or "default"
+    # Un certificat remplacé depuis l'écran Réglages garde le même chemin : la date du fichier change la clé.
+    try:
+        key = f"{ca_bundle}@{Path(ca_bundle).stat().st_mtime_ns}" if ca_bundle else "default"
+    except OSError:
+        key = ca_bundle
     if key not in _CLIENTS:
         timeout = httpx.Timeout(600.0, connect=20.0)
-        _CLIENTS[key] = httpx.AsyncClient(verify=ca_bundle or True, timeout=timeout)
+        _CLIENTS[key] = httpx.AsyncClient(verify=verification(ca_bundle), timeout=timeout)
     return _CLIENTS[key]
+
+
+def verification(ca_bundle: str) -> ssl.SSLContext | bool:
+    """Vérification HTTPS : certificats du système, ou l'autorité fournie (certificat d'entreprise).
+
+    Python 3.13 active par défaut une vérification X.509 « stricte » qui refuse les autorités de certification
+    internes sans extension « key usage », pourtant courantes en entreprise et acceptées par curl et les
+    navigateurs. On la retire : la chaîne de certificats et le nom du serveur restent entièrement vérifiés.
+    """
+    if not ca_bundle:
+        return True
+    contexte = ssl.create_default_context(cafile=ca_bundle)
+    contexte.verify_flags &= ~getattr(ssl, "VERIFY_X509_STRICT", 0)
+    return contexte
 
 
 def _error(status: int, body: str) -> LLMError:

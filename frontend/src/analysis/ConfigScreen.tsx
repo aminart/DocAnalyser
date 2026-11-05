@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { analysisApi } from './api';
+import { analysisApi, MODELS_CHANGED } from './api';
 import { Analysis, AnalysisLevel, AnalysisMode, ModelInfo, UploadedDocument } from './types';
 import { FileBadge, Icons, extOf, formatSize } from './ui';
 
@@ -123,10 +123,18 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    analysisApi
-      .listModels()
-      .then(setModels)
-      .catch((e: Error) => setModelsError(e.message));
+    const load = () =>
+      analysisApi
+        .listModels()
+        .then((list) => {
+          setModels(list);
+          setModelsError(null);
+        })
+        .catch((e: Error) => setModelsError(e.message));
+    load();
+    // Connexions modifiées dans l'écran Réglages : la liste des modèles est relue.
+    window.addEventListener(MODELS_CHANGED, load);
+    return () => window.removeEventListener(MODELS_CHANGED, load);
   }, []);
 
   const addFiles = useCallback((list: FileList | null) => {
@@ -401,14 +409,20 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
             )}
             {!modelsError && models.length === 0 && (
               <p className="m-0 mb-3 text-sm text-warning-text">
-                Aucun modèle déclaré : renseignez CUSTOM_LLM_API_BASE et CUSTOM_LLM_AVAILABLE_MODELS dans backend/.env
-                (voir .env.example), puis redémarrez le backend.
+                Aucun modèle : ajoutez une connexion et ses modèles dans les{' '}
+                <a href="#/reglages" className="font-semibold text-accent underline">
+                  Réglages
+                </a>
+                .
               </p>
             )}
             {!modelsError && models.length > 0 && configured.length === 0 && (
               <p className="m-0 mb-3 text-sm text-warning-text">
-                Les modèles sont déclarés mais aucune adresse d'API n'est renseignée : complétez CUSTOM_LLM_API_BASE
-                dans backend/.env.
+                Aucun modèle utilisable : complétez l'adresse ou la clé API de la connexion dans les{' '}
+                <a href="#/reglages" className="font-semibold text-accent underline">
+                  Réglages
+                </a>
+                .
               </p>
             )}
             <div className="flex flex-col gap-2.5">

@@ -63,9 +63,26 @@ cd frontend && npm run dev                                          # interface 
 
 Vite relaie `/api` vers le backend (voir `frontend/vite.config.ts`).
 
-## 2. Configuration des modèles (`backend/.env`)
+## 2. Connexions aux modèles : écran Réglages
 
-Les modèles proposés dans l'application sont **exactement ceux listés dans `backend/.env`**, dans le même ordre (modèle : `backend/.env.example`).
+Les modèles se configurent dans l'application, onglet **Réglages**, avec la même logique que SpecGen et Audit ergonomique, et **plusieurs connexions** possibles, chacune avec **plusieurs modèles**.
+
+| Champ | Rôle |
+|---|---|
+| Nom | Affiché à côté de chaque modèle au moment de lancer une analyse. |
+| URL du service | Adresse du service **compatible OpenAI** : passerelle interne, Mistral, vLLM, Ollama, LM Studio, Azure… |
+| Clé API | **Chiffrée avec le compte Windows** (DPAPI), jamais réaffichée en clair. Facultative pour un serveur sans clé (Ollama, LM Studio). |
+| Certificat de l'entreprise *(facultatif)* | `.crt` (PEM ou DER) de l'autorité qui a signé le certificat HTTPS du serveur, copié dans l'application ; expiration affichée. Les autorités internes sans extension « key usage » sont acceptées (chaîne et nom du serveur vérifiés). |
+| Modèles | Autant que voulu. Le profil (approfondi, équilibré, rapide) est déduit du nom. |
+| Options avancées | Fenêtre de contexte (tokens). |
+
+**Tester la connexion** vérifie les valeurs saisies avant d'enregistrer et indique la cause d'un échec : serveur injoignable, délai dépassé, certificat non reconnu, clé refusée, adresse ou modèle introuvable. Si le serveur liste ses modèles, le test signale ceux qui n'y sont pas et **propose ceux qui y sont, à ajouter d'un clic**.
+
+Les connexions sont enregistrées dans `%APPDATA%\DocAnalyser` (`~/.config/docanalyser` hors Windows ; `DOCANALYSER_CONFIG` pour un autre dossier).
+
+### Déploiement sur plusieurs postes : fichier `backend/.env`
+
+Les fournisseurs déclarés dans `backend/.env` (modèle : `backend/.env.example`) restent valables : ils **s'ajoutent** aux connexions de l'écran, qui les affiche en lecture seule (étiquette « Fichier .env »).
 
 **Fournisseurs compatibles OpenAI** (vLLM, Ollama, Azure OpenAI, passerelle interne…), deux au plus : `CUSTOM_LLM_*` et `CUSTOM_LLM_2_*`.
 
@@ -86,7 +103,7 @@ En cas de quota dépassé ou de surcharge, l'analyse bascule automatiquement sur
 
 **Gros documents et offres limitées** : certaines offres (par exemple une clé Gemini gratuite) limitent le volume traité par minute, bien en dessous de la fenêtre théorique du modèle. Si un gros document envoyé d'un bloc est refusé, l'application bascule automatiquement sur l'analyse par lots. Pour l'éviter d'emblée, fixez `MAX_REQUEST_TOKENS` (par exemple `120000`) et réduisez `MAX_CONCURRENT_LLM_REQUESTS` à 1 ou 2.
 
-Redémarrez le backend après toute modification du `.env`. Ne versionnez jamais `backend/.env` (il est exclu par `.gitignore`).
+Redémarrez l'application après toute modification du `.env` (les changements faits dans l'écran Réglages s'appliquent tout de suite). Ne versionnez jamais `backend/.env` (il est exclu par `.gitignore`).
 
 ## 3. Fidélité aux documents
 
