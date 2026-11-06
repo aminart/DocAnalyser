@@ -4,16 +4,18 @@ import { ConfigScreen } from '../analysis/ConfigScreen';
 import { HistoryScreen } from '../analysis/HistoryScreen';
 import { JourneyReport } from '../analysis/JourneyReport';
 import { ProgressScreen } from '../analysis/ProgressScreen';
+import { SettingsScreen } from '../analysis/SettingsScreen';
 import { ThemesReport } from '../analysis/ThemesReport';
 import { Analysis } from '../analysis/types';
 import { AppHeader, View, modelLabel } from '../analysis/ui';
 
-type Route = { screen: 'config' | 'history' } | { screen: 'progress' | 'result'; id: string };
+type Route = { screen: 'config' | 'history' | 'settings' } | { screen: 'progress' | 'result'; id: string };
 
 const LAST_ANALYSIS_KEY = 'analyse-documentaire:last';
 
 const parseHash = (): Route => {
   if (window.location.hash === '#/historique') return { screen: 'history' };
+  if (window.location.hash === '#/reglages') return { screen: 'settings' };
   const m = window.location.hash.match(/^#\/analyse\/([\w-]+)(\/synthese)?$/);
   return m ? { screen: m[2] ? 'result' : 'progress', id: m[1] } : { screen: 'config' };
 };
@@ -91,6 +93,7 @@ export const App: React.FC = () => {
   const navigate = (view: View) => {
     if (view === 'new') go('#/');
     else if (view === 'history') go('#/historique');
+    else if (view === 'settings') go('#/reglages');
     else if (lastId) go(`#/analyse/${lastId}${analysis?.id === lastId && analysis.status === 'done' ? '/synthese' : ''}`);
   };
 
@@ -103,11 +106,14 @@ export const App: React.FC = () => {
     }
   };
 
-  const activeView: View = route.screen === 'config' ? 'new' : route.screen === 'history' ? 'history' : 'analysis';
+  const activeView: View =
+    route.screen === 'config' ? 'new' : route.screen === 'history' ? 'history' : route.screen === 'settings' ? 'settings' : 'analysis';
   const nav = { active: activeView, onNavigate: navigate, analysisAvailable: !!lastId };
 
   let body: React.ReactNode = null;
-  if (route.screen === 'history') {
+  if (route.screen === 'settings') {
+    body = <SettingsScreen />;
+  } else if (route.screen === 'history') {
     body = (
       <HistoryScreen
         onOpen={(it) => go(`#/analyse/${it.id}${it.status === 'done' ? '/synthese' : ''}`)}

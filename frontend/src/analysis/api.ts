@@ -1,4 +1,7 @@
-import { Analysis, AnalysisLevel, AnalysisSummary, AnalysisMode, ModelInfo, SourcePassage, SourceRequest, UploadedDocument } from './types';
+import {
+  Analysis, AnalysisLevel, AnalysisSummary, AnalysisMode, ConnectionForm, ConnectionsState, ConnectionTest, ModelInfo,
+  SourcePassage, SourceRequest, UploadedDocument,
+} from './types';
 
 // Même origine : le backend sert l'interface (et Vite relaie /api en développement, voir vite.config.ts).
 const API_BASE = (import.meta.env.VITE_ANALYSIS_API_URL || '/api/v2').replace(/\/$/, '');
@@ -59,3 +62,29 @@ export const analysisApi = {
 
   exportUrl: (id: string, format: 'md' | 'docx' | 'pdf') => `${API_BASE}/analyses/${id}/export?format=${format}`,
 };
+
+const json = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
+
+/** Écran Réglages : connexions aux modèles. */
+export const connectionsApi = {
+  list: () => request<ConnectionsState>('/connections'),
+  create: (form: ConnectionForm & { last_test?: ConnectionTest }) => request<ConnectionsState>('/connections', json('POST', form)),
+  update: (id: string, form: ConnectionForm & { last_test?: ConnectionTest }) => request<ConnectionsState>(`/connections/${id}`, json('PUT', form)),
+  remove: (id: string) => request<ConnectionsState>(`/connections/${id}`, { method: 'DELETE' }),
+  uploadCertificate(id: string, file: File): Promise<ConnectionsState> {
+    const body = new FormData();
+    body.append('file', file);
+    return request<ConnectionsState>(`/connections/${id}/certificate`, { method: 'POST', body });
+  },
+  removeCertificate: (id: string) => request<ConnectionsState>(`/connections/${id}/certificate`, { method: 'DELETE' }),
+  test: (form: ConnectionForm & { id?: string; certificate_b64?: string }) =>
+    request<ConnectionTest>('/connections/test', json('POST', form)),
+};
+
+/** Prévient l'écran de configuration que la liste des modèles a changé. */
+export const MODELS_CHANGED = 'docanalyser:models-changed';
+

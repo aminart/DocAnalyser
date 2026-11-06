@@ -5,6 +5,8 @@ from pathlib import Path
 
 # Doit être défini avant tout import de l'application (la configuration est lue à l'import).
 os.environ["STORAGE_DIR"] = tempfile.mkdtemp(prefix="docanalyser-tests-")
+# Connexions de l'écran Réglages : dossier temporaire, jamais celles du poste.
+os.environ["DOCANALYSER_CONFIG"] = tempfile.mkdtemp(prefix="docanalyser-config-tests-")
 
 import pytest  # noqa: E402
 

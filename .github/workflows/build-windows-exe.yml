@@ -1,0 +1,85 @@
+name: Build Windows exe
+
+# Fabrique DocAnalyser.exe sur une machine Windows de GitHub :
+# - à chaque push : l'exe est disponible en artefact « DocAnalyser-windows » (onglet Actions) ;
+# - à chaque release publiée (tag vX.Y.Z) : l'exe est en plus joint à la release, sous le nom
+#   DocAnalyser-X.Y.Z.exe. Le tag doit correspondre au fichier VERSION.
+
+on:
+  push:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        run: |
+          version="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "DocAnalyser $version"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            tag="${{ github.event.release.tag_name }}"
+            if [ "$tag" != "v$version" ]; then
+              echo "::error::Le tag $tag ne correspond pas au fichier VERSION ($version). Lancer scripts/bump_version.py avant la release."
+              exit 1
+            fi
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Interface
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Exécutable
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt pyinstaller
+          pyinstaller --noconfirm DocAnalyser.spec
+
+      - name: Vérification
+        run: |
+          ./dist/DocAnalyser.exe --version
+          ./dist/DocAnalyser.exe --no-browser --port 8599 &
+          for i in $(seq 90); do curl -sf http://127.0.0.1:8599/health && exit 0; sleep 1; done
+          echo "::error::L'exe ne répond pas sur /health"
+          exit 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DocAnalyser-windows
+          path: dist/DocAnalyser.exe
+          if-no-files-found: error
+
+      - name: Joindre l'exe à la release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          name="DocAnalyser-${{ steps.version.outputs.version }}.exe"
+          cp dist/DocAnalyser.exe "dist/$name"
+          gh release upload "${{ github.event.release.tag_name }}" "dist/$name" --clobber

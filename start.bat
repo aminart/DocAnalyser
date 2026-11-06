@@ -39,7 +39,7 @@ if errorlevel 1 goto :venv_failed
 if errorlevel 1 goto :python_too_old
 
 rem Dependances completes ? Sinon installation ou complement.
-"%VENV_PY%" -c "import fastapi, uvicorn, multipart, pydantic_settings, httpx, fitz, docx, openpyxl, pptx, fpdf" >nul 2>&1
+"%VENV_PY%" -c "import fastapi, uvicorn, multipart, pydantic_settings, httpx, fitz, docx, openpyxl, pptx, fpdf, cryptography" >nul 2>&1
 if not errorlevel 1 goto :deps_ready
 echo [1/3] Installation des dependances Python, cela peut prendre quelques minutes...
 "%VENV_PY%" -m pip install --upgrade pip --quiet

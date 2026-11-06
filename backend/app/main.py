@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.analysis_routes import router as analysis_router
+from app.api.connection_routes import router as connection_router
 from app.core.config import BACKEND_DIR
 from app.info import APP_ID, APP_NAME, VERSION
 from app.services.analysis_service import load_history
@@ -27,6 +28,7 @@ app.add_middleware(
 )
 
 app.include_router(analysis_router)
+app.include_router(connection_router)
 
 
 @app.on_event("startup")
