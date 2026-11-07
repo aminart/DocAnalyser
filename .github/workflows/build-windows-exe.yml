@@ -75,11 +75,18 @@ jobs:
           path: dist/DocAnalyser.exe
           if-no-files-found: error
 
-      - name: Joindre l'exe à la release
+      - name: Joindre l'exe et le zip à la release
         if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           name="DocAnalyser-${{ steps.version.outputs.version }}.exe"
           cp dist/DocAnalyser.exe "dist/$name"
-          gh release upload "${{ github.event.release.tag_name }}" "dist/$name" --clobber
+          # Zip à côté de l'exe : passe les filtres qui bloquent le téléchargement d'un .exe.
+          base="DocAnalyser-${{ steps.version.outputs.version }}-windows"
+          mkdir -p "dist/zip/$base"
+          cp dist/DocAnalyser.exe "dist/zip/$base/"
+          cp CHANGELOG.md "dist/zip/$base/"
+          cp "backend/.env.example" "dist/zip/$base/.env.example"
+          (cd dist/zip && python -m zipfile -c "../$base.zip" "$base")
+          gh release upload "${{ github.event.release.tag_name }}" "dist/$name" "dist/$base.zip" --clobber
