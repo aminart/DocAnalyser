@@ -25,6 +25,9 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 - Analyse documentaire devient **DocAnalyser** (identifiant du portail : `docanalyser`).
 - Interface sur le design system commun Night Navy (couleurs, police Roboto, arrondis), comme SpecGen et
   Audit ergonomique ; plus de polices téléchargées.
+- Dépendances à jour (FastAPI 0.162, Uvicorn 0.54, python-multipart 0.0.32, PyMuPDF 1.28, python-docx 1.2,
+  fpdf2 2.8.9…) ; chargement de l'historique au démarrage par `lifespan` (remplace `on_event`, déprécié).
+- Code : `analysis_service.py` découpé (catalogue des modèles, consignes, normalisation, export).
 
 ### Corrigé
 

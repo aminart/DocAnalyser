@@ -1,5 +1,7 @@
 import os
 import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -13,7 +15,14 @@ from app.core.config import BACKEND_DIR
 from app.info import APP_ID, APP_NAME, VERSION
 from app.services.analysis_service import load_history
 
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    load_history()  # historique conservé entre deux redémarrages
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="DocAnalyser API",
     description="Import de documents multi-formats et synthèses structurées par thèmes ou par parcours",
     version=VERSION,
@@ -31,11 +40,6 @@ app.add_middleware(
 
 app.include_router(analysis_router)
 app.include_router(connection_router)
-
-
-@app.on_event("startup")
-async def restore_history() -> None:
-    load_history()
 
 
 @app.get("/health")
