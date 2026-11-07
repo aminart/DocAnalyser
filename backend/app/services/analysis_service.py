@@ -365,8 +365,19 @@ DOCUMENTS: dict[str, StoredDocument] = {}
 _parser = MultiFormatDocumentParser()
 
 
+# Anciens formats binaires d'Office : aucune des bibliothèques de lecture ne les ouvre.
+LEGACY_FORMATS = {".doc": ".docx", ".xls": ".xlsx", ".ppt": ".pptx"}
+
+
 def store_document(content: bytes, file_name: str) -> StoredDocument:
     safe_name = Path(file_name).name or "document.txt"
+    suffix = Path(safe_name).suffix.lower()
+    if suffix in LEGACY_FORMATS:
+        modern = LEGACY_FORMATS[suffix]
+        raise AnalysisError(
+            f"{safe_name} est à l'ancien format {suffix}, que DocAnalyser ne sait pas lire. Ouvrez-le dans "
+            f"Office et enregistrez-le au format {modern} (Fichier › Enregistrer sous), puis importez-le à nouveau."
+        )
     doc_id = str(uuid.uuid4())
     path = settings.STORAGE_DIR / f"v2_{doc_id}_{safe_name}"
     path.write_bytes(content)

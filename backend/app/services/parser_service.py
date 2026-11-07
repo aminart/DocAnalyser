@@ -86,13 +86,13 @@ class MultiFormatDocumentParser:
         suffix = Path(original_name).suffix.lower()
         if suffix == ".pdf":
             return self._parse_pdf(file_path, original_name)
-        if suffix in {".docx", ".doc"}:
+        if suffix == ".docx":
             return self._parse_docx(file_path, original_name)
-        if suffix in {".xlsx", ".xls"}:
+        if suffix == ".xlsx":
             return self._parse_excel(file_path, original_name)
         if suffix == ".csv":
             return self._parse_csv(file_path, original_name)
-        if suffix in {".pptx", ".ppt"}:
+        if suffix == ".pptx":
             return self._parse_pptx(file_path, original_name)
         if suffix in {".vtt", ".srt"}:
             return self._parse_subtitles(file_path, original_name)

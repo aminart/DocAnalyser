@@ -24,6 +24,15 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ### Corrigé
 
+- Sécurité : la clé API enregistrée d'une connexion n'est plus envoyée à une autre adresse que la sienne lors
+  d'un test (il faut la saisir à nouveau), et l'API n'accepte plus que l'interface locale (CORS limité à
+  `127.0.0.1` et `localhost`) : un site ouvert dans le navigateur ne peut plus lire l'historique ni utiliser
+  les connexions.
+- Anciens formats Office (`.doc`, `.xls`, `.ppt`) : message clair invitant à les enregistrer en `.docx`,
+  `.xlsx` ou `.pptx`, au lieu d'une erreur technique.
+- Import limité à 50 Mo par fichier (`MAX_UPLOAD_MB` dans le `.env`), lu par morceaux, avec un message clair.
+- Export PDF en police Unicode embarquée (DejaVu Sans) : œ, guillemets, tirets, flèches et alphabets grec ou
+  cyrillique ne sont plus remplacés par « ? ».
 - Les autorités de certification internes sans extension « key usage », refusées par défaut depuis
   Python 3.13, sont acceptées.
 

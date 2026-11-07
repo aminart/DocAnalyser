@@ -109,6 +109,8 @@ En cas de quota dépassé ou de surcharge, l'analyse bascule automatiquement sur
 
 **Gros documents et offres limitées** : certaines offres (par exemple une clé Gemini gratuite) limitent le volume traité par minute, bien en dessous de la fenêtre théorique du modèle. Si un gros document envoyé d'un bloc est refusé, l'application bascule automatiquement sur l'analyse par lots. Pour l'éviter d'emblée, fixez `MAX_REQUEST_TOKENS` (par exemple `120000`) et réduisez `MAX_CONCURRENT_LLM_REQUESTS` à 1 ou 2.
 
+**Taille des fichiers** : un fichier importé est limité à 50 Mo ; `MAX_UPLOAD_MB` relève ou abaisse cette limite. Les anciens formats Office (`.doc`, `.xls`, `.ppt`) ne sont pas lus : enregistrez-les d'abord en `.docx`, `.xlsx` ou `.pptx`.
+
 Redémarrez l'application après toute modification du `.env` (les changements faits dans l'écran Réglages s'appliquent tout de suite). Ne versionnez jamais `backend/.env` (il est exclu par `.gitignore`).
 
 ## Versions

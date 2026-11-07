@@ -7,6 +7,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from app.core.config import settings
 from app.services import analysis_service as svc
 from app.services import store
 from app.services.export_service import markdown_to_docx, markdown_to_pdf
@@ -38,7 +39,18 @@ async def list_models() -> list[dict]:
 
 @router.post("/documents")
 async def upload_document(file: UploadFile = File(...)) -> dict:
-    content = await file.read()
+    limit = settings.MAX_UPLOAD_MB * 1024 * 1024
+    chunks, size = [], 0
+    while chunk := await file.read(1024 * 1024):  # lu par morceaux : un fichier trop gros est refusé sans tout charger
+        size += len(chunk)
+        if size > limit:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{file.filename or 'Ce fichier'} dépasse {settings.MAX_UPLOAD_MB} Mo, la taille maximale "
+                       "acceptée. Découpez-le, ou relevez MAX_UPLOAD_MB dans le fichier .env.",
+            )
+        chunks.append(chunk)
+    content = b"".join(chunks)
     if not content:
         raise HTTPException(status_code=400, detail="Fichier vide.")
     try:

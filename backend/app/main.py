@@ -21,8 +21,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    # Seule l'interface locale (servie par le backend, ou Vite en développement) peut appeler l'API :
+    # un site ouvert dans le navigateur ne doit pas pouvoir lire l'historique ni utiliser les connexions.
+    allow_origin_regex=r"https?://(127\.0\.0\.1|localhost)(:\d+)?",
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
