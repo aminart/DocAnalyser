@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { analysisApi } from './api';
 import { Analysis, Coverage, QuoteCheck } from './types';
+import logoApp from '../assets/docanalyser.svg';
 
 /* ---------- Icônes (traits 24×24) ---------- */
 
@@ -179,9 +180,7 @@ export const AppHeader: React.FC<{
       className={`mx-auto flex min-h-16 flex-wrap items-center gap-6 px-8 ${wide ? 'max-w-[1280px]' : 'max-w-[1240px]'}`}
     >
       <div className="flex items-center gap-2.5 text-base font-bold">
-        <div className="flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-primary text-white">
-          <Icons.logo size={16} />
-        </div>
+        <img src={logoApp} alt="" width={30} height={30} className="block shrink-0" />
         <span>DocAnalyser</span>
       </div>
       {onNavigate && (

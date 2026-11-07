@@ -7,6 +7,7 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ### Ajouté
 
+- Nouvelle icône DocAnalyser, commune avec Studio Dock : icône de l'exe, logo de l'en-tête et icône de l'onglet (dossier `icone/`).
 - Exécutable Windows `DocAnalyser.exe`, sans Python ni Node.js à installer : fabriqué par GitHub à chaque
   push et joint à chaque release. Depuis l'exe, documents et historique sont dans `%APPDATA%\DocAnalyser`,
   le `.env` facultatif à côté de l'exe.
