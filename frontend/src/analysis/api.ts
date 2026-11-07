@@ -1,5 +1,5 @@
 import {
-  Analysis, AnalysisLevel, AnalysisSummary, AnalysisMode, ConnectionForm, ConnectionsState, ConnectionTest, ModelInfo,
+  Analysis, AnalysisLevel, Question, AnalysisSummary, AnalysisMode, ConnectionForm, ConnectionsState, ConnectionTest, ModelInfo,
   SourcePassage, SourceRequest, UploadedDocument,
 } from './types';
 
@@ -59,6 +59,20 @@ export const analysisApi = {
 
   getSource: (id: string, req: SourceRequest) =>
     request<SourcePassage>(`/analyses/${id}/source?${new URLSearchParams({ ...req })}`),
+
+  listQuestions: (id: string) => request<Question[]>(`/analyses/${id}/questions`),
+
+  askQuestion: (id: string, question: string) =>
+    request<Question>(`/analyses/${id}/questions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question }),
+    }),
+
+  async clearQuestions(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/analyses/${id}/questions`, { method: 'DELETE' }).catch(() => null);
+    if (!res || !res.ok) throw new Error('Impossible d’effacer les questions.');
+  },
 
   exportUrl: (id: string, format: 'md' | 'docx' | 'pdf') => `${API_BASE}/analyses/${id}/export?format=${format}`,
 };

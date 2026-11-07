@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.services import analysis_service as svc
+from app.services import qa_service
 from app.services import store
 from app.services.export_service import markdown_to_docx, markdown_to_pdf
 from app.services.source_lookup import passage
@@ -102,6 +103,33 @@ async def cancel_analysis(analysis_id: str) -> dict:
 async def delete_analysis(analysis_id: str) -> Response:
     """Supprime une analyse de l'historique, avec ses documents s'ils ne servent pas ailleurs."""
     svc.delete_analysis(_get(analysis_id))
+    return Response(status_code=204)
+
+
+class QuestionCreate(BaseModel):
+    question: str = Field(min_length=1, max_length=2000)
+
+
+@router.get("/analyses/{analysis_id}/questions")
+async def list_questions(analysis_id: str) -> list[dict]:
+    """Questions posées sur les documents de l'analyse ; une réponse en cours s'y écrit au fil de l'eau."""
+    return _get(analysis_id).questions
+
+
+@router.post("/analyses/{analysis_id}/questions", status_code=202)
+async def ask_question(analysis_id: str, payload: QuestionCreate) -> dict:
+    analysis = _get(analysis_id)
+    try:
+        return qa_service.ask(analysis, payload.question)
+    except qa_service.QuestionBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except svc.AnalysisError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/analyses/{analysis_id}/questions", status_code=204)
+async def clear_questions(analysis_id: str) -> Response:
+    qa_service.clear(_get(analysis_id))
     return Response(status_code=204)
 
 

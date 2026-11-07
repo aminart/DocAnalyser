@@ -672,6 +672,7 @@ class Analysis:
     batched: bool = False  # corpus trop grand pour le modèle : analyse par lots
     step_notes: dict[int, str] = field(default_factory=dict)  # précisions d'étape (« lot 3/6 »)
     context_cap: int = 0  # plafond de taille de requête après un échec d'envoi en un seul bloc
+    questions: list[dict[str, Any]] = field(default_factory=list)  # questions posées sur les documents (qa_service)
 
     def step_details(self) -> list[str]:
         total_pages = sum(d.pages for d in self.documents)
@@ -726,6 +727,7 @@ class Analysis:
             "result": self.result,
             "markdown": self.markdown,
             "error": self.error,
+            "questions": self.questions,
         }
 
     def summary(self) -> dict[str, Any]:

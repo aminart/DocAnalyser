@@ -15,6 +15,10 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
   modèles, clé chiffrée, certificat `.crt`, test avec diagnostic et modèles du serveur proposés à l'ajout.
   Les fournisseurs du `.env` restent valables, en lecture seule.
 - Mode sombre.
+- Onglet **Questions** : interroger les documents d'une analyse. Corpus envoyé en entier s'il tient dans
+  `QA_CONTEXT_TOKENS`, sinon recherche par mots-clés (BM25, synonymes proposés par le modèle) sur des passages
+  repérés. Réponses rédigées au fil de l'eau, uniquement à partir des documents, avec sources vérifiables en un
+  clic ; questions enregistrées avec l'analyse.
 
 ### Modifié
 

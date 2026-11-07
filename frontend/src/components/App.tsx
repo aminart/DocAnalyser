@@ -4,20 +4,22 @@ import { ConfigScreen } from '../analysis/ConfigScreen';
 import { HistoryScreen } from '../analysis/HistoryScreen';
 import { JourneyReport } from '../analysis/JourneyReport';
 import { ProgressScreen } from '../analysis/ProgressScreen';
+import { QuestionsPanel } from '../analysis/QuestionsPanel';
 import { SettingsScreen } from '../analysis/SettingsScreen';
 import { ThemesReport } from '../analysis/ThemesReport';
 import { Analysis } from '../analysis/types';
-import { AppHeader, View, modelLabel } from '../analysis/ui';
+import { AppHeader, ReportBanner, ReportTab, View, docCountLabel, modelLabel } from '../analysis/ui';
 
-type Route = { screen: 'config' | 'history' | 'settings' } | { screen: 'progress' | 'result'; id: string };
+type Route = { screen: 'config' | 'history' | 'settings' } | { screen: 'progress' | 'result' | 'questions'; id: string };
 
 const LAST_ANALYSIS_KEY = 'analyse-documentaire:last';
 
 const parseHash = (): Route => {
   if (window.location.hash === '#/historique') return { screen: 'history' };
   if (window.location.hash === '#/reglages') return { screen: 'settings' };
-  const m = window.location.hash.match(/^#\/analyse\/([\w-]+)(\/synthese)?$/);
-  return m ? { screen: m[2] ? 'result' : 'progress', id: m[1] } : { screen: 'config' };
+  const m = window.location.hash.match(/^#\/analyse\/([\w-]+)(\/synthese|\/questions)?$/);
+  if (!m) return { screen: 'config' };
+  return { screen: m[2] === '/questions' ? 'questions' : m[2] ? 'result' : 'progress', id: m[1] };
 };
 
 const go = (hash: string) => {
@@ -46,6 +48,7 @@ export const App: React.FC = () => {
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastId, setLastId] = useState<string | null>(readLast);
+  const [questionCount, setQuestionCount] = useState(0);
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash());
@@ -83,6 +86,10 @@ export const App: React.FC = () => {
 
   const current = analysis && analysis.id === routeId ? analysis : null;
 
+  useEffect(() => {
+    setQuestionCount(current?.questions?.length ?? 0);
+  }, [current?.id, current?.questions?.length]);
+
   const onLaunched = useCallback((a: Analysis) => {
     setAnalysis(a);
     setLastId(a.id);
@@ -109,6 +116,14 @@ export const App: React.FC = () => {
   const activeView: View =
     route.screen === 'config' ? 'new' : route.screen === 'history' ? 'history' : route.screen === 'settings' ? 'settings' : 'analysis';
   const nav = { active: activeView, onNavigate: navigate, analysisAvailable: !!lastId };
+
+  const tabs = routeId
+    ? {
+        active: (route.screen === 'questions' ? 'questions' : 'report') as ReportTab,
+        onChange: (tab: ReportTab) => go(`#/analyse/${routeId}/${tab === 'questions' ? 'questions' : 'synthese'}`),
+        questions: questionCount,
+      }
+    : undefined;
 
   let body: React.ReactNode = null;
   if (route.screen === 'settings') {
@@ -152,8 +167,20 @@ export const App: React.FC = () => {
       );
     } else if (!current) {
       body = <p className="py-20 text-center text-ink-muted">Chargement…</p>;
+    } else if (route.screen === 'questions' && current.status === 'done' && current.result) {
+      body = (
+        <>
+          <ReportBanner
+            analysis={current}
+            onNewAnalysis={() => go('#/')}
+            chips={[current.mode_label, current.level_label, docCountLabel(current.documents.length), modelLabel(current)]}
+            tabs={tabs}
+          />
+          <QuestionsPanel analysis={current} onCount={setQuestionCount} />
+        </>
+      );
     } else if (route.screen === 'result' && current.status === 'done' && current.result) {
-      const props = { analysis: current, onNewAnalysis: () => go('#/') };
+      const props = { analysis: current, onNewAnalysis: () => go('#/'), tabs };
       body =
         current.result.kind === 'journey' ? (
           <JourneyReport {...props} result={current.result} />
@@ -172,14 +199,15 @@ export const App: React.FC = () => {
     }
   }
 
-  const showingProgress = route.screen === 'progress' || (route.screen === 'result' && current?.status !== 'done');
+  const showingProgress =
+    route.screen === 'progress' || ((route.screen === 'result' || route.screen === 'questions') && current?.status !== 'done');
 
   return (
     <div className="min-h-screen bg-bg font-sans text-[15px] leading-normal text-ink">
       {showingProgress && current ? (
         <AppHeader right={`${current.mode_label} · ${current.level_label} · ${modelLabel(current)}`} />
       ) : (
-        <AppHeader {...nav} wide={route.screen === 'result'} />
+        <AppHeader {...nav} wide={route.screen === 'result' || route.screen === 'questions'} />
       )}
 
       {/* La configuration reste montée pour conserver documents et choix entre deux analyses. */}

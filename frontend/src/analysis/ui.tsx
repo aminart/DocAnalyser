@@ -323,12 +323,22 @@ const ExportMenu: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   );
 };
 
+export type ReportTab = 'report' | 'questions';
+
+/** Onglets de l'écran de résultat : la synthèse, et les questions posées sur les documents. */
+export interface ReportTabs {
+  active: ReportTab;
+  onChange: (tab: ReportTab) => void;
+  questions: number;
+}
+
 export const ReportBanner: React.FC<{
   analysis: Analysis;
   onNewAnalysis: () => void;
   showCopy?: boolean;
   chips: string[];
-}> = ({ analysis, onNewAnalysis, showCopy, chips }) => {
+  tabs?: ReportTabs;
+}> = ({ analysis, onNewAnalysis, showCopy, chips, tabs }) => {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -389,6 +399,35 @@ export const ReportBanner: React.FC<{
             ))}
           </div>
         </div>
+        {tabs && (
+          <div role="tablist" aria-label="Affichage" className="-mb-[22px] flex gap-1">
+            {(
+              [
+                ['report', analysis.mode === 'flow' ? 'Parcours' : 'Synthèse'],
+                ['questions', 'Questions'],
+              ] as const
+            ).map(([key, label]) => {
+              const active = tabs.active === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => tabs.onChange(key)}
+                  className={`inline-flex min-h-11 items-center gap-2 border-x-0 border-b-[3px] border-t-0 bg-transparent px-4 font-semibold ${
+                    active ? 'border-accent text-ink' : 'border-transparent text-ink-muted hover:text-ink'
+                  }`}
+                >
+                  {label}
+                  {key === 'questions' && tabs.questions > 0 && (
+                    <span className="rounded-full bg-surface-3 px-2 text-xs font-semibold text-ink-muted">{tabs.questions}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
