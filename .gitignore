@@ -19,3 +19,7 @@ __pycache__/
 # Fabrication de l exe (PyInstaller)
 /build/
 /dist/
+
+# Tests de bout en bout
+test-results/
+playwright-report/

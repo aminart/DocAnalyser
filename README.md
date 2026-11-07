@@ -162,7 +162,17 @@ cd backend
 RUN_LLM_TESTS=1 .venv/bin/python -m pytest -m llm -v      # fidélité avec un vrai modèle (payant, quelques minutes)
 ```
 
-Sous Windows, remplacez `.venv/bin/python` par `.venv\Scripts\python`. Pour tester un modèle précis, ajoutez par exemple `TEST_MODEL="CUSTOM_LLM:mistral-medium-latest"` ; sinon, le premier modèle configuré est utilisé.
+Sous Windows, remplacez `.venv/bin/python` par `.venv\Scripts\python`.
+
+Tests de l'interface, depuis `frontend/` :
+
+```bash
+npm test                                         # composants (Vitest), API simulée, quelques secondes
+npm run build && npx playwright install chromium # une seule fois pour le navigateur
+PYTHON=../backend/.venv/bin/python npm run e2e   # bout en bout : vrai backend, faux modèle (frontend/e2e/)
+```
+
+La CI GitHub lance les trois : tests backend, tests de l'interface, tests de bout en bout. Pour tester un modèle précis, ajoutez par exemple `TEST_MODEL="CUSTOM_LLM:mistral-medium-latest"` ; sinon, le premier modèle configuré est utilisé.
 
 - **Tests rapides** : lecture de chaque format (pages scannées signalées, tableaux Word à leur place, formes PowerPoint groupées, CSV Windows-1252), vérification des verbatims, résolution des sources, contrôle de couverture, graphe de flux, aperçu en streaming, historique après redémarrage.
 - **Tests avec modèle**, sur les documents de `backend/tests/fixtures/` :
