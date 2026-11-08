@@ -247,6 +247,13 @@ async def tester(form: TestForm) -> dict[str, Any]:
     if not base.lower().startswith(("http://", "https://")):
         resultat = _echec("api_base", "Adresse invalide", "Renseignez l'URL du service (http:// ou https://).")
         return {**resultat, "at": datetime.now(timezone.utc).isoformat()}
+    if form.api_key is None and enregistree and enregistree.api_base and base != enregistree.api_base:
+        # La clé enregistrée ne part que vers l'adresse pour laquelle elle a été saisie : sinon, un appel à cette
+        # route avec une autre adresse suffirait à l'envoyer à n'importe quel serveur.
+        resultat = _echec("api_key", "Saisissez à nouveau la clé API",
+                          "L'adresse du service a changé : par sécurité, la clé enregistrée n'est pas envoyée à la "
+                          "nouvelle adresse. Saisissez la clé pour tester.")
+        return {**resultat, "at": datetime.now(timezone.utc).isoformat()}
     cle = form.api_key.strip() if form.api_key is not None else (connexions.cle(enregistree) if enregistree else "")
     if form.kind != "openai" and not cle:
         resultat = _echec("api_key", "Clé API manquante", f"{LIBELLES_TYPE[form.kind]} exige une clé API.")

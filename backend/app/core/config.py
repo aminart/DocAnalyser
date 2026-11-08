@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # Taille maximale d'une requête (tokens), en dessous de la fenêtre du modèle : utile quand l'offre limite
     # le volume par minute (ex. clé Gemini gratuite). 0 = pas de limite autre que la fenêtre du modèle.
     MAX_REQUEST_TOKENS: int = 0
+    # Taille maximale d'un fichier importé (Mo) : au-delà, l'import est refusé avec un message clair.
+    MAX_UPLOAD_MB: int = 50
+    # Questions sur les documents : taille maximale des extraits envoyés au modèle pour une question (tokens).
+    # Un corpus plus petit est envoyé en entier ; au-delà, les passages sont choisis par recherche par mots-clés.
+    QA_CONTEXT_TOKENS: int = 24_000
 
     @staticmethod
     def _is_key_set(raw_key: str) -> bool:

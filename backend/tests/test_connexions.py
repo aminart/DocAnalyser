@@ -219,6 +219,23 @@ def test_cle_enregistree_utilisee_et_resultat_garde(client):
         serveur.shutdown()
 
 
+def test_cle_enregistree_jamais_envoyee_a_une_autre_adresse(client):
+    """Sinon, un appel au test avec l'id d'une connexion et une autre adresse suffirait à exfiltrer la clé."""
+    serveur, recus = _serveur()
+    autre = f"http://127.0.0.1:{serveur.server_port}/v1"
+    try:
+        id_ = creer(client, api_key="cle-enregistree-1234", models=["mistral-small"])["created"]
+        r = client.post("/api/v2/connections/test", json={"id": id_, "api_base": autre, "models": ["mistral-small"]}).json()
+        assert not r["ok"] and r["field"] == "api_key"
+        assert recus == []  # aucune requête partie vers l'autre adresse
+        # Avec la clé saisie à nouveau, le test passe
+        r = client.post("/api/v2/connections/test", json={"id": id_, "api_base": autre, "api_key": "nouvelle-cle-5678",
+                                                          "models": ["mistral-small"]}).json()
+        assert r["ok"] and recus[-1][2] == "Bearer nouvelle-cle-5678"
+    finally:
+        serveur.shutdown()
+
+
 def test_https_autorite_interne(client, tmp_path):
     cle_ca, ca = _autorite()
     cle_srv, cert_srv = _certificat_serveur(cle_ca, ca)

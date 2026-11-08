@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { SourcePanel } from './SourcePanel';
 import { Analysis, JourneyResult, Priority, SourceRequest } from './types';
 import { FlowDiagram } from './FlowDiagram';
-import { CoverageNote, Disclaimer, Emphasis, QuoteNotice, ReportBanner, docCountLabel, modelLabel } from './ui';
+import { CoverageNote, Disclaimer, Emphasis, QuoteNotice, ReportBanner, ReportTabs, docCountLabel, modelLabel } from './ui';
 
 const SEVERITY: Record<Priority['severity'], [string, string]> = {
   Bloquant: ['var(--nn-danger-soft)', 'var(--nn-danger-text)'],
@@ -17,10 +17,11 @@ const RowLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="border-t border-surface-3 py-[18px] text-[13px] font-semibold text-ink-body">{children}</div>
 );
 
-export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult; onNewAnalysis: () => void }> = ({
+export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult; onNewAnalysis: () => void; tabs?: ReportTabs }> = ({
   analysis,
   result,
   onNewAnalysis,
+  tabs,
 }) => {
   const [source, setSource] = useState<SourceRequest | null>(null);
   const n = result.phases.length;
@@ -42,6 +43,7 @@ export const JourneyReport: React.FC<{ analysis: Analysis; result: JourneyResult
       <ReportBanner
         analysis={analysis}
         onNewAnalysis={onNewAnalysis}
+        tabs={tabs}
         chips={[analysis.mode_label, analysis.level_label, docCountLabel(analysis.documents.length), modelLabel(analysis)]}
       />
 
