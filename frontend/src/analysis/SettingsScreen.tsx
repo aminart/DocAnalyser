@@ -458,7 +458,7 @@ export const SettingsScreen: React.FC = () => {
   return (
     <main className="mx-auto flex w-full max-w-[920px] flex-col gap-6 px-6 pb-16 pt-11">
       <header>
-        <h1 className="m-0 text-[34px] font-bold leading-[1.15] tracking-[-0.02em]">Réglages</h1>
+        <h1 className="nn-page-title">Réglages</h1>
         <p className="m-0 mt-2 text-ink-muted">
           Connexions aux modèles de langage : la passerelle compatible OpenAI de votre organisation, ou un modèle sur ce poste (Ollama, LM Studio). Chaque connexion peut proposer plusieurs modèles.
         </p>

@@ -212,7 +212,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
   return (
     <main className="mx-auto box-border max-w-[1240px] px-8 pb-[72px] pt-10">
       <div className="mb-8 flex flex-col gap-1.5">
-        <h1 className="m-0 text-[34px] font-bold leading-[1.15] tracking-[-0.02em]">Nouvelle analyse</h1>
+        <h1 className="nn-page-title">Nouvelle analyse</h1>
         <p className="m-0 text-base text-ink-muted">
           Importez vos documents, choisissez comment les lire, et laissez le modèle en dégager les grands thèmes.
         </p>

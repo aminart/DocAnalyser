@@ -5,6 +5,8 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.1.0] — 2026-11-08
+
 ### Ajouté
 
 - Nouvelle icône DocAnalyser, commune avec Studio Dock : icône de l'exe, logo de l'en-tête et icône de l'onglet (dossier `icone/`).
@@ -19,6 +21,8 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ### Modifié
 
+- En-tête commun à la suite (design system Night Navy 1.1.0) : onglets soulignés, Réglages devient une icône à
+  droite à côté du thème. Titres de page au format commun (32 px, alignés à gauche).
 - Analyse documentaire devient **DocAnalyser** (identifiant du portail : `docanalyser`).
 - Interface sur le design system commun Night Navy (couleurs, police Roboto, arrondis), comme SpecGen et
   Audit ergonomique ; plus de polices téléchargées.
