@@ -7,6 +7,7 @@ import {
   FileBadge,
   Icons,
   ReportBanner,
+  ReportTabs,
   docCountLabel,
   extOf,
   modelLabel,
@@ -27,10 +28,11 @@ const scrollTo = (id: string) => (e: React.MouseEvent) => {
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
-export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; onNewAnalysis: () => void }> = ({
+export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; onNewAnalysis: () => void; tabs?: ReportTabs }> = ({
   analysis,
   result,
   onNewAnalysis,
+  tabs,
 }) => {
   const [closed, setClosed] = useState<number[]>([]);
   const [source, setSource] = useState<SourceRequest | null>(null);
@@ -60,6 +62,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
       <ReportBanner
         analysis={analysis}
         onNewAnalysis={onNewAnalysis}
+        tabs={tabs}
         showCopy
         chips={[analysis.mode_label, analysis.level_label, docCountLabel(nDocs), modelLabel(analysis)]}
       />

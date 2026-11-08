@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -10,5 +11,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: { '/api': BACKEND, '/health': BACKEND },
+  },
+  // Tests de l'interface (npm test) : composants rendus dans jsdom, API simulée. Les tests de bout en bout sont dans e2e/.
+  test: {
+    environment: 'jsdom',
+    include: ['src/**/*.test.{ts,tsx}'],
+    restoreMocks: true,
   },
 });

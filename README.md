@@ -6,7 +6,7 @@ Quatre modes d'analyse : **Synthèse globale**, **Synthèse de transcription**, 
 
 Interface : design system commun **Night Navy** (le même que SpecGen et Audit ergonomique, paquet `night-navy` du dépôt [Design-system-](https://github.com/aminart/Design-system-)), en mode clair ou sombre : le bouton en haut à droite bascule, sinon le thème suit celui du système.
 
-Écrans : Configuration → Analyse en cours (progression et thèmes en direct) → Synthèse par thèmes, ou carte du parcours pour le mode Flux. Les synthèses s'exportent en Markdown, Word ou PDF.
+Écrans : Configuration → Analyse en cours (progression et thèmes en direct) → Synthèse par thèmes, ou carte du parcours pour le mode Flux. Les synthèses s'exportent en Markdown, Word ou PDF. L'onglet **Questions** permet ensuite d'interroger les documents analysés, avec des réponses sourcées.
 
 ## 1. Démarrage
 
@@ -109,6 +109,8 @@ En cas de quota dépassé ou de surcharge, l'analyse bascule automatiquement sur
 
 **Gros documents et offres limitées** : certaines offres (par exemple une clé Gemini gratuite) limitent le volume traité par minute, bien en dessous de la fenêtre théorique du modèle. Si un gros document envoyé d'un bloc est refusé, l'application bascule automatiquement sur l'analyse par lots. Pour l'éviter d'emblée, fixez `MAX_REQUEST_TOKENS` (par exemple `120000`) et réduisez `MAX_CONCURRENT_LLM_REQUESTS` à 1 ou 2.
 
+**Taille des fichiers** : un fichier importé est limité à 50 Mo ; `MAX_UPLOAD_MB` relève ou abaisse cette limite. Les anciens formats Office (`.doc`, `.xls`, `.ppt`) ne sont pas lus : enregistrez-les d'abord en `.docx`, `.xlsx` ou `.pptx`.
+
 Redémarrez l'application après toute modification du `.env` (les changements faits dans l'écran Réglages s'appliquent tout de suite). Ne versionnez jamais `backend/.env` (il est exclu par `.gitignore`).
 
 ## Versions
@@ -140,6 +142,15 @@ La synthèse doit pouvoir remplacer la lecture des documents. L'application appl
 - **Pas de troncature** : une réponse coupée faute de place est reprise automatiquement là où le modèle s'est arrêté.
 - **Corpus volumineux** (plus grand que la fenêtre du modèle, fréquent avec Mistral Medium ou Small) : analyse automatique par lots. Chaque lot donne des éléments sourcés (faits, chiffres, décisions, verbatims…) recopiés avec leur repère. Ils sont ensuite classés en thèmes ; un élément non classé va dans « Autres points », il n'est jamais perdu. Enfin, chaque thème est rédigé à partir de ses éléments et des passages d'origine. Réglez `CUSTOM_LLM_CONTEXT_TOKENS` sur la fenêtre réelle du modèle.
 
+### Questions sur les documents
+
+L'onglet **Questions** de l'écran de résultat interroge les documents de l'analyse, avec le modèle de l'analyse :
+
+- **Corpus entier s'il tient** dans `QA_CONTEXT_TOKENS` (24 000 tokens par défaut, dans la limite de la fenêtre du modèle) : rien ne peut manquer à la réponse.
+- **Sinon, recherche par mots-clés** (BM25, sans dépendance ni modèle d'embeddings) sur des passages d'une dizaine de lignes qui gardent leurs repères. Le modèle propose d'abord des synonymes de la question, pour retrouver les passages formulés autrement. Les meilleurs passages remplissent le budget.
+- **Réponses fidèles** : uniquement à partir des extraits, « Les documents ne permettent pas de répondre à cette question. » sinon, chaque affirmation suivie de sa source `[[document | repère]]`. Les sources s'ouvrent comme celles de la synthèse ; un repère introuvable est signalé.
+- **Questions de suivi** : les trois derniers échanges sont rappelés au modèle. Les questions sont enregistrées avec l'analyse dans l'historique.
+
 ## 4. Tests de fidélité
 
 À lancer après toute modification des consignes, du code d'analyse ou du modèle utilisé, pour vérifier que rien n'a régressé.
@@ -151,7 +162,17 @@ cd backend
 RUN_LLM_TESTS=1 .venv/bin/python -m pytest -m llm -v      # fidélité avec un vrai modèle (payant, quelques minutes)
 ```
 
-Sous Windows, remplacez `.venv/bin/python` par `.venv\Scripts\python`. Pour tester un modèle précis, ajoutez par exemple `TEST_MODEL="CUSTOM_LLM:mistral-medium-latest"` ; sinon, le premier modèle configuré est utilisé.
+Sous Windows, remplacez `.venv/bin/python` par `.venv\Scripts\python`.
+
+Tests de l'interface, depuis `frontend/` :
+
+```bash
+npm test                                         # composants (Vitest), API simulée, quelques secondes
+npm run build && npx playwright install chromium # une seule fois pour le navigateur
+PYTHON=../backend/.venv/bin/python npm run e2e   # bout en bout : vrai backend, faux modèle (frontend/e2e/)
+```
+
+La CI GitHub lance les trois : tests backend, tests de l'interface, tests de bout en bout. Pour tester un modèle précis, ajoutez par exemple `TEST_MODEL="CUSTOM_LLM:mistral-medium-latest"` ; sinon, le premier modèle configuré est utilisé.
 
 - **Tests rapides** : lecture de chaque format (pages scannées signalées, tableaux Word à leur place, formes PowerPoint groupées, CSV Windows-1252), vérification des verbatims, résolution des sources, contrôle de couverture, graphe de flux, aperçu en streaming, historique après redémarrage.
 - **Tests avec modèle**, sur les documents de `backend/tests/fixtures/` :
@@ -171,6 +192,7 @@ Sous Windows, remplacez `.venv/bin/python` par `.venv\Scripts\python`. Pour test
 - `DELETE /api/v2/analyses/{id}` : suppression (avec les documents qui ne servent plus)
 - `GET /api/v2/analyses/{id}/source?document=&location=&text=` : passage d'origine d'une source, lignes concernées surlignées
 - `GET /api/v2/analyses/{id}/export?format=md|docx|pdf`
+- `POST /api/v2/analyses/{id}/questions` puis `GET /api/v2/analyses/{id}/questions` : question sur les documents, réponse rédigée au fil de l'eau ; `DELETE` pour effacer les questions
 
 ## 6. Historique et données
 

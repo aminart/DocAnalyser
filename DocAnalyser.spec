@@ -35,6 +35,7 @@ if not Path("frontend/dist/index.html").is_file():
 datas = [
     ("VERSION", "."),
     ("frontend/dist", "frontend_dist"),
+    ("backend/app/assets/fonts", "app/assets/fonts"),  # police Unicode de l'export PDF
 ]
 binaries = []
 hiddenimports = collect_submodules("uvicorn") + collect_submodules("app")

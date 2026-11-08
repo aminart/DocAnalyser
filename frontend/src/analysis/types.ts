@@ -191,6 +191,23 @@ export interface Analysis {
   result: ThemesResult | JourneyResult | null;
   markdown: string;
   error: string | null;
+  questions?: Question[];
+}
+
+/** Question posée sur les documents d'une analyse (réponse sourcée, rédigée au fil de l'eau). */
+export interface Question {
+  id: string;
+  question: string;
+  answer: string;
+  status: 'running' | 'done' | 'failed';
+  error: string | null;
+  sources: SourceRef[];
+  /** full : corpus envoyé en entier ; search : passages choisis par la recherche par mots-clés. */
+  scope: 'full' | 'search' | '';
+  passages: number;
+  keywords: string[];
+  model_name: string;
+  created_at: string;
 }
 
 /* ---------- Réglages : connexions aux modèles ---------- */
