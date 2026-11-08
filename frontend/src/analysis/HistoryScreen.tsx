@@ -48,7 +48,7 @@ export const HistoryScreen: React.FC<{
     <main className="mx-auto box-border max-w-[1240px] px-8 pb-[72px] pt-10">
       <div className="mb-8 flex flex-wrap items-end gap-4">
         <div className="flex flex-grow flex-col gap-1.5">
-          <h1 className="m-0 text-[34px] font-bold leading-[1.15] tracking-[-0.02em]">Historique</h1>
+          <h1 className="nn-page-title">Historique</h1>
           <p className="m-0 text-base text-ink-muted">
             Vos analyses enregistrées. Supprimer une analyse efface aussi ses documents s’ils ne servent à aucune autre.
           </p>

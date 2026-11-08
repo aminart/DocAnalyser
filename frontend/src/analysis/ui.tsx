@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { analysisApi } from './api';
 import { Analysis, Coverage, QuoteCheck } from './types';
+import logoApp from '../assets/docanalyser.svg';
 
 /* ---------- Icônes (traits 24×24) ---------- */
 
@@ -167,50 +168,65 @@ export const Emphasis: React.FC<{ text: string }> = ({ text }) => (
 
 export type View = 'new' | 'analysis' | 'history' | 'settings';
 
+/** En-tête commun de la suite (design system Night Navy 1.1.0, classes nn-appbar). */
 export const AppHeader: React.FC<{
   active?: View;
   onNavigate?: (view: View) => void;
   analysisAvailable?: boolean;
   right?: React.ReactNode;
   wide?: boolean;
-}> = ({ active, onNavigate, analysisAvailable, right, wide }) => (
-  <header className="border-b border-line bg-surface">
-    <div
-      className={`mx-auto flex min-h-16 flex-wrap items-center gap-6 px-8 ${wide ? 'max-w-[1280px]' : 'max-w-[1240px]'}`}
-    >
-      <div className="flex items-center gap-2.5 text-base font-bold">
-        <div className="flex h-[30px] w-[30px] items-center justify-center rounded-lg bg-primary text-white">
-          <Icons.logo size={16} />
-        </div>
-        <span>DocAnalyser</span>
-      </div>
-      {onNavigate && (
-        <nav aria-label="Navigation principale" className="flex flex-grow flex-wrap gap-1">
-          {(
-            [
-              ['new', 'Nouvelle analyse', true],
-              ['analysis', 'Analyse', analysisAvailable],
-              ['history', 'Historique', true],
-              ['settings', 'Réglages', true],
-            ] as const
-          ).map(([id, label, enabled]) => (
-            <button
-              key={id}
-              type="button"
-              disabled={!enabled}
-              aria-current={active === id ? 'page' : undefined}
-              onClick={() => onNavigate(id)}
-              className={`rounded-lg border-none px-3 py-2 disabled:cursor-not-allowed disabled:opacity-50 ${
-                active === id ? 'bg-accent-soft font-semibold text-accent-ink' : 'bg-transparent font-medium text-ink-muted'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </nav>
-      )}
-      {right && <span className="text-sm text-ink-muted">{right}</span>}
+}> = ({ active, onNavigate, analysisAvailable, right }) => (
+  <header className="nn-appbar sticky top-0 z-30">
+    {onNavigate ? (
+      <a href="#/" className="nn-appbar-brand" onClick={(e) => { e.preventDefault(); onNavigate('new'); }}>
+        <img className="nn-appbar-icon" src={logoApp} alt="" />
+        DocAnalyser
+      </a>
+    ) : (
+      <span className="nn-appbar-brand">
+        <img className="nn-appbar-icon" src={logoApp} alt="" />
+        DocAnalyser
+      </span>
+    )}
+    <nav aria-label="Navigation principale" className="nn-appbar-nav">
+      {onNavigate &&
+        (
+          [
+            ['new', 'Nouvelle analyse', true],
+            ['analysis', 'Analyse', analysisAvailable],
+            ['history', 'Historique', true],
+          ] as const
+        ).map(([id, label, enabled]) => (
+          <button
+            key={id}
+            type="button"
+            disabled={!enabled}
+            aria-current={active === id ? 'page' : undefined}
+            onClick={() => onNavigate(id)}
+            className={`nn-appbar-tab ${active === id ? 'is-active' : ''}`}
+          >
+            {label}
+          </button>
+        ))}
+    </nav>
+    <div className="nn-appbar-tools">
+      {right && <span className="hidden text-sm text-ink-muted md:inline">{right}</span>}
       <ThemeToggle />
+      {onNavigate && (
+        <button
+          type="button"
+          onClick={() => onNavigate('settings')}
+          aria-label="Réglages"
+          title="Réglages"
+          aria-current={active === 'settings' ? 'page' : undefined}
+          className={`nn-icon-btn ${active === 'settings' ? 'bg-accent-soft text-accent-ink' : ''}`}
+        >
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
+          </svg>
+        </button>
+      )}
     </div>
   </header>
 );
@@ -244,7 +260,7 @@ export const ThemeToggle: React.FC = () => {
       onClick={() => window.NightNavy?.toggle()}
       aria-label={label}
       title={label}
-      className="ml-auto flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-none bg-transparent text-ink-muted hover:bg-surface-3 hover:text-ink"
+      className="nn-icon-btn"
     >
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {theme === 'dark' ? (

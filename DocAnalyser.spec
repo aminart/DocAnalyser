@@ -1,5 +1,6 @@
 # Recette PyInstaller de DocAnalyser.exe (workflow « Build Windows exe », ou : pyinstaller --noconfirm DocAnalyser.spec).
 # Prérequis : l'interface compilée (cd frontend && npm ci && npm run build).
+import os
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
@@ -66,6 +67,7 @@ exe = EXE(
     a.datas,
     [],
     name="DocAnalyser",
+    icon=os.path.join(SPECPATH, "icone", "docanalyser.ico"),
     version=version_info,
     console=True,
     upx=False,
