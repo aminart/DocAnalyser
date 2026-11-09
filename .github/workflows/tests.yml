@@ -1,7 +1,9 @@
 name: Tests
 
 on:
+  # Une seule exécution par modification : sur les PR, et sur main après fusion.
   push:
+    branches: [main]
   pull_request:
 
 jobs:
