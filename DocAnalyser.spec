@@ -41,11 +41,11 @@ datas = [
 binaries = []
 hiddenimports = collect_submodules("uvicorn") + collect_submodules("app")
 
-# Lecture des documents et exports : bibliothèques avec données ou modules natifs
-for paquet in ("pymupdf", "fitz", "docx", "pptx", "openpyxl", "fpdf"):
+# Lecture des documents et exports : bibliothèques avec données (pdfminer : tables de caractères des PDF)
+for paquet in ("pdfminer", "docx", "pptx", "openpyxl", "fpdf"):
     try:
         paquet_datas, paquet_binaries, paquet_hidden = collect_all(paquet)
-    except Exception:  # noqa: BLE001 : nom de paquet absent selon la version de PyMuPDF
+    except Exception:  # noqa: BLE001 : paquet absent
         continue
     datas += paquet_datas
     binaries += paquet_binaries
@@ -57,7 +57,9 @@ a = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    excludes=["tkinter", "matplotlib", "IPython", "pytest"],
+    # Inutiles ici (des Mo pour rien) : boucle uvloop (Linux), rechargement à chaud, yaml, numpy/pandas
+    excludes=["tkinter", "matplotlib", "IPython", "pytest", "fitz", "pymupdf", "uvloop", "watchfiles", "yaml",
+              "numpy", "pandas"],
 )
 pyz = PYZ(a.pure)
 exe = EXE(

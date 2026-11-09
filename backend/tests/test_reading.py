@@ -1,5 +1,5 @@
 """Lecture des documents : rien d'inventé, ordre conservé, repères de ligne, encodages."""
-import fitz
+from fpdf import FPDF
 from docx import Document
 from pptx import Presentation
 from pptx.util import Inches
@@ -10,14 +10,17 @@ P = MultiFormatDocumentParser()
 
 
 def test_pdf_page_sans_texte_signalee_et_non_inventee(tmp_path):
-    pdf = fitz.open()
-    pdf.new_page().insert_text((72, 72), "Bonjour page 1")
-    pdf.new_page()  # page scannée simulée
-    pdf.save(tmp_path / "d.pdf")
+    pdf = FPDF()
+    pdf.set_font("helvetica", size=12)
+    pdf.add_page()
+    pdf.cell(0, 10, "Bonjour page 1")
+    pdf.add_page()  # page scannée simulée
+    pdf.output(str(tmp_path / "d.pdf"))
     r = P.parse(tmp_path / "d.pdf", "d.pdf")
     assert [b.location for b in r.blocks] == ["Page 1"]
     assert r.warnings and "p. 2" in r.warnings[0]
     assert all("schéma" not in b.content.lower() for b in r.blocks)
+    assert r.blocks[0].content == "Bonjour page 1"
 
 
 def test_word_tableau_reste_a_sa_place_et_titres_reperes(tmp_path):

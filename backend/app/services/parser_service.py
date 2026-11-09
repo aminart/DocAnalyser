@@ -13,13 +13,17 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import fitz  # PyMuPDF
 import openpyxl
 from docx import Document as DocxDocument
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+# PDF : pdfminer.six (Python pur, quelques Mo) plutôt que PyMuPDF (plus de 20 Mo de bibliothèque native dans l'exe),
+# pour une vitesse et un texte équivalents ; l'analyse de mise en page rend les blocs dans l'ordre de lecture.
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LAParams, LTTextContainer
 
 BLOCK_CHARS = 3800  # taille cible d'un bloc envoyé au modèle
 ROW_PREFIX = re.compile(r"^(?:L\d+|§\d+|\d{2}:\d{2}:\d{2}): ", re.M)
@@ -103,14 +107,17 @@ class MultiFormatDocumentParser:
     def _parse_pdf(self, file_path: Path, name: str) -> ParsedDocument:
         out = ParsedDocument()
         empty: list[int] = []
-        with fitz.open(file_path) as doc:
-            for i, page in enumerate(doc, start=1):
-                text = page.get_text("text", sort=True).strip()
-                if text:
-                    out.blocks.append(AnchoredTextBlock(name, f"Page {i}", text))
-                else:
-                    empty.append(i)
-            total = len(doc)
+        total = 0
+        for i, page in enumerate(extract_pages(str(file_path), laparams=LAParams()), start=1):
+            total = i
+            text = "\n".join(
+                element.get_text().strip() for element in page if isinstance(element, LTTextContainer)
+            ).strip()
+            text = re.sub(r"\n{3,}", "\n\n", text)
+            if text:
+                out.blocks.append(AnchoredTextBlock(name, f"Page {i}", text))
+            else:
+                empty.append(i)
         out.units = _plural(total, "page")
         if empty:
             listed = ", ".join(map(str, empty[:10])) + ("…" if len(empty) > 10 else "")
