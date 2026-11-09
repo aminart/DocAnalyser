@@ -6,7 +6,7 @@ name: Build Windows exe
 #   DocAnalyser-X.Y.Z.exe. Le tag doit correspondre au fichier VERSION.
 
 on:
-  push:
+  # Builds seulement pour une release (ou à la main, onglet Actions) : économise les minutes GitHub Actions.
   workflow_dispatch:
   release:
     types: [published]
