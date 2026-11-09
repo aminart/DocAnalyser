@@ -5,6 +5,14 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.1.1] — 2026-11-09
+
+### Modifié
+
+- Exécutable plus léger (environ un tiers de moins) : les PDF sont lus avec pdfminer.six (Python pur) au lieu de
+  PyMuPDF, dont la bibliothèque native pesait plus de 20 Mo ; vitesse et texte extrait équivalents, pages sans texte
+  toujours signalées. Retirés aussi de l'exe : uvloop, watchfiles, yaml.
+
 ## [2.1.0] — 2026-11-08
 
 ### Ajouté

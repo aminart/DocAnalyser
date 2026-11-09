@@ -1,5 +1,6 @@
 """Garde-fous : API réservée à l'interface locale, anciens formats Office, taille d'import, export PDF Unicode."""
-import fitz
+import io
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -43,7 +44,8 @@ def test_fichier_trop_gros_refuse(client, monkeypatch):
 
 def test_export_pdf_garde_la_typographie():
     pdf = markdown_to_pdf("Synthèse « œuvre » — bilan", "## Thème 1\n- Cœur “citation” → Ελληνικά\nTexte **gras**")
-    with fitz.open(stream=pdf, filetype="pdf") as doc:
-        text = doc[0].get_text()
+    from pdfminer.high_level import extract_text
+
+    text = " ".join(extract_text(io.BytesIO(pdf)).split())
     for attendu in ("Synthèse « œuvre » — bilan", "Cœur “citation” → Ελληνικά", "Texte gras"):
         assert attendu in text
