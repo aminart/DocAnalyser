@@ -5,6 +5,16 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.2.0] — 2026-11-17
+
+### Ajouté
+
+- Modèles d'IA de Studio Dock : les connexions réglées une fois dans Studio Dock (Réglages › Modèles d'IA),
+  communes à toutes les apps de la suite, y compris les modèles locaux d'Ollama, sont proposées dans
+  « Nouvelle analyse ». Elles apparaissent en lecture seule dans les Réglages, marquées « Studio Dock ».
+  Le modèle choisi pour DocAnalyser dans Studio Dock est sélectionné d'office. Studio Dock peut aussi laisser
+  à DocAnalyser sa configuration propre.
+
 ## [2.1.1] — 2026-11-09
 
 ### Modifié

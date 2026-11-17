@@ -7,6 +7,8 @@ from pathlib import Path
 os.environ["STORAGE_DIR"] = tempfile.mkdtemp(prefix="docanalyser-tests-")
 # Connexions de l'écran Réglages : dossier temporaire, jamais celles du poste.
 os.environ["DOCANALYSER_CONFIG"] = tempfile.mkdtemp(prefix="docanalyser-config-tests-")
+# Modèles d'IA de Studio Dock : dossier temporaire, jamais ceux du poste.
+os.environ["STUDIODOCK_IA"] = tempfile.mkdtemp(prefix="docanalyser-studiodock-tests-")
 
 import pytest  # noqa: E402
 

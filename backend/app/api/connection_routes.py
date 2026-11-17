@@ -20,7 +20,7 @@ import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
-from app.core import connexions
+from app.core import connexions, studiodock_ia
 from app.core.config import ENV_PATH
 from app.services import analysis_service as svc
 from app.services import llm_client
@@ -82,11 +82,24 @@ def _depuis_env() -> list[dict[str, Any]]:
     return sortie
 
 
+def _depuis_studiodock() -> list[dict[str, Any]]:
+    """Connexions réglées dans Studio Dock (Réglages › Modèles d'IA) : affichées en lecture seule."""
+    return [{
+        "id": f"{svc.STUDIODOCK}{c.id}", "source": "studiodock", "kind": "openai", "kind_label": LIBELLES_TYPE["openai"],
+        "name": c.name, "api_base": c.api_base, "has_api_key": bool(c.api_key), "api_key_hint": _indice(c.api_key),
+        "certificate": {"name": Path(c.ca_bundle).name} if c.ca_bundle else None, "models": list(c.models),
+        "context_tokens": c.context_tokens, "max_output_tokens": c.max_output_tokens, "last_test": None,
+        "local": c.local,
+    } for c in svc.connexions_studiodock()]
+
+
 def _tout() -> dict[str, Any]:
     return {
-        "connections": _depuis_env() + [_publique(c) for c in connexions.lister()],
+        "connections": _depuis_env() + _depuis_studiodock() + [_publique(c) for c in connexions.lister()],
         "env_file": str(ENV_PATH) if ENV_PATH.is_file() else None,
         "storage_dir": str(connexions.dossier_config()),
+        # Studio Dock garde à DocAnalyser sa configuration propre : ses connexions ne sont pas reprises
+        "studiodock_own": studiodock_ia.garde_sa_configuration(svc.APP_ID),
     }
 
 

@@ -352,6 +352,8 @@ const ConnectionCard: React.FC<{
 }> = ({ c, onEdit, onDelete, onTested }) => {
   const [busy, setBusy] = useState(false);
   const fromEnv = c.source === 'env';
+  const fromDock = c.source === 'studiodock';
+  const readOnly = fromEnv || fromDock;
   const exp = expiry(c.certificate?.expires_at);
   const test = c.last_test;
 
@@ -371,10 +373,11 @@ const ConnectionCard: React.FC<{
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="m-0 text-[17px] font-bold">{c.name}</h3>
             {fromEnv && <span className="rounded-md bg-warning-soft px-2 py-0.5 text-xs font-semibold text-warning-text">Fichier .env · {c.env_prefix}</span>}
+            {fromDock && <span className="rounded-md bg-accent-soft px-2 py-0.5 text-xs font-semibold text-accent-ink">Studio Dock</span>}
           </div>
           <p className="m-0 mt-1 break-all text-[13px] text-ink-muted">{c.api_base}</p>
         </div>
-        {!fromEnv && (
+        {!readOnly && (
           <div className="flex flex-wrap gap-2">
             <button type="button" className={smallButton} disabled={busy} onClick={runTest}>{busy ? 'Test…' : 'Tester'}</button>
             <button type="button" className={smallButton} onClick={onEdit}>Modifier</button>
@@ -406,6 +409,8 @@ const ConnectionCard: React.FC<{
 
       {fromEnv ? (
         <p className="m-0 text-[13px] text-ink-subtle">Déclarée dans le fichier .env : modifiable seulement dans ce fichier, prioritaire sur cet écran.</p>
+      ) : fromDock ? (
+        <p className="m-0 text-[13px] text-ink-subtle">Réglée dans Studio Dock (Réglages › Modèles d'IA), commune à toutes les apps de la suite : modifiable seulement là-bas.</p>
       ) : test ? (
         <p className={`m-0 flex items-center gap-1.5 text-[13px] ${test.ok ? 'text-success-text' : 'text-danger-text'}`}>
           <Svg d={test.ok ? I.check : I.alert} size={14} />
@@ -454,6 +459,7 @@ export const SettingsScreen: React.FC = () => {
 
   const editingConnection = editing && editing !== 'new' ? state.connections.find((c) => c.id === editing) ?? null : null;
   const hasEnv = state.connections.some((c) => c.source === 'env');
+  const hasDock = state.connections.some((c) => c.source === 'studiodock');
 
   return (
     <main className="mx-auto flex w-full max-w-[920px] flex-col gap-6 px-6 pb-16 pt-11">
@@ -470,6 +476,16 @@ export const SettingsScreen: React.FC = () => {
           <p className="m-0">
             Certaines connexions sont déclarées dans le fichier <b className="font-medium text-ink-body">.env</b>
             {state.env_file ? ` (${state.env_file})` : ''} : elles s'ajoutent à celles de cet écran et ne sont modifiables que dans ce fichier.
+          </p>
+        </div>
+      )}
+      {(hasDock || state.studiodock_own) && (
+        <div className="flex gap-3 rounded-[10px] border border-line bg-surface px-5 py-4 text-[13px] leading-relaxed text-ink-muted">
+          <Svg d={I.info} className="mt-0.5 shrink-0" />
+          <p className="m-0">
+            {hasDock
+              ? <>Les connexions marquées <b className="font-medium text-ink-body">Studio Dock</b> sont communes à toutes les apps de la suite : elles se règlent dans Studio Dock, onglet Modèles d'IA. Le modèle choisi pour DocAnalyser y est proposé d'office dans « Nouvelle analyse ».</>
+              : <>Studio Dock laisse à DocAnalyser sa configuration propre : seules les connexions de cet écran sont utilisées.</>}
           </p>
         </div>
       )}
