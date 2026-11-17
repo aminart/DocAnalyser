@@ -3,7 +3,8 @@
 Principes :
 - aucun texte n'est jamais inventé : une page sans couche texte (scan, image) est signalée, pas décrite ;
 - chaque ligne ou paragraphe porte un repère (L12, §4, Slide 3, Page 2) que le modèle cite comme source ;
-- l'ordre de lecture d'origine est conservé (tableaux Word à leur place, formes PowerPoint de haut en bas).
+- l'ordre de lecture d'origine est conservé (tableaux Word à leur place, formes PowerPoint de haut en bas) ;
+- seuls les formats connus sont lus : un fichier d'un autre format est refusé plutôt que lu comme du texte.
 """
 from __future__ import annotations
 
@@ -16,17 +17,42 @@ from pathlib import Path
 import openpyxl
 from docx import Document as DocxDocument
 from docx.table import Table
-from docx.text.paragraph import Paragraph
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 
-# PDF : pdfminer.six (Python pur, quelques Mo) plutôt que PyMuPDF (plus de 20 Mo de bibliothèque native dans l'exe),
-# pour une vitesse et un texte équivalents ; l'analyse de mise en page rend les blocs dans l'ordre de lecture.
-from pdfminer.high_level import extract_pages
-from pdfminer.layout import LAParams, LTTextContainer
+from app.services import pdf_layout, sheet_stats
+from app.services.html_reader import html_lines
+from app.services.mapline_reader import mapline_lines
 
 BLOCK_CHARS = 3800  # taille cible d'un bloc envoyé au modèle
 ROW_PREFIX = re.compile(r"^(?:L\d+|§\d+|\d{2}:\d{2}:\d{2}): ", re.M)
+
+# Extensions lues, avec leur nom affiché dans les messages.
+SUPPORTED_FORMATS: dict[str, str] = {
+    ".pdf": "PDF",
+    ".docx": "Word",
+    ".pptx": "PowerPoint",
+    ".xlsx": "Excel",
+    ".csv": "CSV",
+    ".txt": "texte",
+    ".md": "Markdown",
+    ".vtt": "sous-titres",
+    ".srt": "sous-titres",
+    ".html": "page web",
+    ".htm": "page web",
+    ".mapline": "projet Mapline",
+    ".missionmap": "projet Mapline",
+}
+# Formats lus comme du texte : un contenu binaire y trahit un fichier renommé ou d'un autre type.
+TEXT_FORMATS = {".csv", ".txt", ".md", ".vtt", ".srt", ".html", ".htm", ".mapline", ".missionmap"}
+
+
+class UnsupportedFormat(ValueError):
+    """Fichier d'un format que DocAnalyser ne sait pas lire."""
+
+
+def formats_label() -> str:
+    return "PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT, SRT, HTML et MAPLINE"
 
 
 @dataclass
@@ -61,6 +87,21 @@ def decode_text(raw: bytes) -> str:
     return raw.decode("utf-8", errors="replace")
 
 
+def check_format(name: str, content: bytes) -> None:
+    """Refuse un format inconnu, ou un fichier binaire déguisé en texte, avec un message clair."""
+    suffix = Path(name).suffix.lower()
+    if suffix not in SUPPORTED_FORMATS:
+        what = f"le format {suffix}" if suffix else "un fichier sans extension"
+        raise UnsupportedFormat(
+            f"{name} : DocAnalyser ne sait pas lire {what}. Formats acceptés : {formats_label()}. "
+            "Les images et les archives (.zip) ne sont pas lues."
+        )
+    if suffix in TEXT_FORMATS and b"\x00" in content[:8192]:
+        raise UnsupportedFormat(
+            f"{name} ne contient pas de texte lisible : c'est sans doute un fichier d'un autre type renommé en {suffix}."
+        )
+
+
 def _plural(n: int, word: str) -> str:
     return f"{n} {word}{'s' if n > 1 else ''}"
 
@@ -85,91 +126,232 @@ def _make_block(name: str, buf: list[tuple[str, str]], label: str) -> AnchoredTe
     return AnchoredTextBlock(name, f"{label} {span}", "\n".join(f"{r}: {t}" for r, t in buf))
 
 
+def _numbered(texts: list[str]) -> list[tuple[str, str]]:
+    return [(f"§{i}", t) for i, t in enumerate(texts, start=1)]
+
+
+def _approx_pages(lines: list[tuple[str, str]]) -> str:
+    return f"≈ {_plural(max(1, round(sum(len(t) for _, t in lines) / 2500)), 'page')}"
+
+
+# -- Word : texte des paragraphes ----------------------------------------------
+
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
+_SKIPPED = {f"{_W}txbxContent", _MC_FALLBACK, f"{_W}del", f"{_W}instrText", f"{_W}footnotes", f"{_W}endnotes"}
+
+
+def _run_text(el, out: list[str]) -> None:
+    """Texte visible d'un élément Word, révisions acceptées, sans les zones de texte ancrées dedans."""
+    for child in el:
+        tag = child.tag
+        if tag in _SKIPPED:
+            continue
+        if tag == f"{_W}t":
+            out.append(child.text or "")
+        elif tag in (f"{_W}tab", f"{_W}br", f"{_W}cr"):
+            out.append(" ")
+        elif tag == f"{_W}footnoteReference":
+            out.append(f"[note {child.get(f'{_W}id')}]")
+        elif tag == f"{_W}endnoteReference":
+            out.append(f"[note de fin {child.get(f'{_W}id')}]")
+        else:
+            _run_text(child, out)
+
+
+def _para_text(p_el) -> str:
+    out: list[str] = []
+    _run_text(p_el, out)
+    return re.sub(r"\s+", " ", "".join(out)).strip()
+
+
+def _text_boxes(p_el) -> list[str]:
+    """Paragraphes des zones de texte ancrées dans un paragraphe (une seule fois, sans la copie de secours)."""
+    texts: list[str] = []
+
+    def walk(el, in_fallback: bool) -> None:
+        for child in el:
+            fb = in_fallback or child.tag == _MC_FALLBACK
+            if child.tag == f"{_W}txbxContent":
+                if not fb:
+                    texts.extend(t for t in (_para_text(p) for p in child.iter(f"{_W}p")) if t)
+                continue
+            walk(child, fb)
+
+    walk(p_el, False)
+    return texts
+
+
+def _notes_of(doc, kind: str) -> dict[str, str]:
+    """Notes de bas de page (footnotes) ou de fin (endnotes), par numéro."""
+    from lxml import etree
+
+    for part in doc.part.package.iter_parts():
+        if str(part.partname) == f"/word/{kind}.xml":
+            root = etree.fromstring(part.blob)
+            notes = {}
+            for note in root:
+                if note.get(f"{_W}type") in ("separator", "continuationSeparator", "continuationNotice"):
+                    continue
+                text = " ".join(t for t in (_para_text(p) for p in note.iter(f"{_W}p")) if t)
+                if text:
+                    notes[note.get(f"{_W}id")] = text
+            return notes
+    return {}
+
+
+def _row_cells(row) -> list[str]:
+    """Cellules d'une ligne de tableau Word ; une cellule fusionnée n'est lue qu'une fois."""
+    cells, seen = [], None
+    for c in row.cells:
+        if c._tc is seen:
+            continue
+        seen = c._tc
+        cells.append(c.text.strip().replace("\n", " "))
+    return cells
+
+
+_PAGE_ONLY = re.compile(r"^(?:page|p|pagesur|pageof|sur|of)?$")
+
+
 class MultiFormatDocumentParser:
     def parse(self, file_path: Path, original_name: str) -> ParsedDocument:
         suffix = Path(original_name).suffix.lower()
-        if suffix == ".pdf":
-            return self._parse_pdf(file_path, original_name)
-        if suffix == ".docx":
-            return self._parse_docx(file_path, original_name)
-        if suffix == ".xlsx":
-            return self._parse_excel(file_path, original_name)
-        if suffix == ".csv":
-            return self._parse_csv(file_path, original_name)
-        if suffix == ".pptx":
-            return self._parse_pptx(file_path, original_name)
-        if suffix in {".vtt", ".srt"}:
-            return self._parse_subtitles(file_path, original_name)
-        return self._parse_plain_text(file_path, original_name)
+        readers = {
+            ".pdf": self._parse_pdf,
+            ".docx": self._parse_docx,
+            ".xlsx": self._parse_excel,
+            ".csv": self._parse_csv,
+            ".pptx": self._parse_pptx,
+            ".vtt": self._parse_subtitles,
+            ".srt": self._parse_subtitles,
+            ".html": self._parse_html,
+            ".htm": self._parse_html,
+            ".mapline": self._parse_mapline,
+            ".missionmap": self._parse_mapline,
+            ".txt": self._parse_plain_text,
+            ".md": self._parse_plain_text,
+        }
+        if suffix not in readers:
+            raise UnsupportedFormat(f"{original_name} : format {suffix or 'sans extension'} non pris en charge")
+        return readers[suffix](file_path, original_name)
 
     # -- PDF -----------------------------------------------------------------
 
     def _parse_pdf(self, file_path: Path, name: str) -> ParsedDocument:
         out = ParsedDocument()
-        empty: list[int] = []
-        total = 0
-        for i, page in enumerate(extract_pages(str(file_path), laparams=LAParams()), start=1):
-            total = i
-            text = "\n".join(
-                element.get_text().strip() for element in page if isinstance(element, LTTextContainer)
-            ).strip()
-            text = re.sub(r"\n{3,}", "\n\n", text)
+        result = pdf_layout.read_pdf(str(file_path))
+        for i, text in enumerate(result.pages, start=1):
             if text:
                 out.blocks.append(AnchoredTextBlock(name, f"Page {i}", text))
-            else:
-                empty.append(i)
-        out.units = _plural(total, "page")
-        if empty:
+        out.units = _plural(len(result.pages), "page")
+        if result.empty:
+            empty = result.empty
             listed = ", ".join(map(str, empty[:10])) + ("…" if len(empty) > 10 else "")
             out.warnings.append(
                 f"{_plural(len(empty), 'page')} sans texte lisible (scan ou image), non analysée"
                 f"{'s' if len(empty) > 1 else ''} : p. {listed}"
             )
+        if result.repeated:
+            listed = ", ".join(f"« {t} »" for t in result.repeated[:3]) + ("…" if len(result.repeated) > 3 else "")
+            out.warnings.append(f"En-têtes et pieds de page répétés à chaque page, ignorés : {listed}")
         return out
 
     # -- Word ----------------------------------------------------------------
 
     def _parse_docx(self, file_path: Path, name: str) -> ParsedDocument:
         doc = DocxDocument(str(file_path))
-        lines: list[tuple[str, str]] = []
-        n_par, n_tab = 0, 0
+        footnotes, endnotes = _notes_of(doc, "footnotes"), _notes_of(doc, "endnotes")
+        styles = {s.style_id: (s.name or "").lower() for s in doc.styles}
+        texts: list[str] = []
+        n_tab = 0
+
+        def add_paragraph(p_el) -> None:
+            text = _para_text(p_el)
+            if text:
+                ppr = p_el.find(f"{_W}pPr")
+                style_el = ppr.find(f"{_W}pStyle") if ppr is not None else None
+                style = styles.get(style_el.get(f"{_W}val"), "") if style_el is not None else ""
+                is_list = ppr is not None and ppr.find(f"{_W}numPr") is not None
+                if style.startswith(("heading", "titre", "title")):
+                    text = f"## {text}"
+                elif is_list or style.startswith(("list", "liste")):
+                    text = f"- {text}"
+                texts.append(text)
+            texts.extend(f"[Zone de texte] {t}" for t in _text_boxes(p_el))
+            # Les notes appelées dans le paragraphe suivent le paragraphe : elles restent dans leur contexte.
+            for ref in p_el.iter(f"{_W}footnoteReference"):
+                if (note := footnotes.get(ref.get(f"{_W}id"))):
+                    texts.append(f"[Note {ref.get(f'{_W}id')}] {note}")
+            for ref in p_el.iter(f"{_W}endnoteReference"):
+                if (note := endnotes.get(ref.get(f"{_W}id"))):
+                    texts.append(f"[Note de fin {ref.get(f'{_W}id')}] {note}")
+
         # Parcours du corps dans l'ordre : paragraphes et tableaux restent à leur place.
         for child in doc.element.body.iterchildren():
             tag = child.tag.rsplit("}", 1)[-1]
             if tag == "p":
-                p = Paragraph(child, doc)
-                text = p.text.strip()
-                if not text:
-                    continue
-                n_par += 1
-                style = (p.style.name if p.style is not None else "").lower()
-                if style.startswith(("heading", "titre", "title")):
-                    text = f"## {text}"
-                elif style.startswith(("list", "liste")):
-                    text = f"- {text}"
-                lines.append((f"§{n_par}", text))
+                add_paragraph(child)
             elif tag == "tbl":
                 n_tab += 1
                 table = Table(child, doc)
                 for r, row in enumerate(table.rows, start=1):
-                    cells = [c.text.strip().replace("\n", " ") for c in row.cells]
+                    cells = _row_cells(row)
                     if any(cells):
-                        n_par += 1
-                        lines.append((f"§{n_par}", f"[Tableau {n_tab}, ligne {r}] | " + " | ".join(cells) + " |"))
-        pages = max(1, round(sum(len(t) for _, t in lines) / 2500))
-        return ParsedDocument(_chunk_lines(name, lines, "Paragraphes"), [], f"≈ {_plural(pages, 'page')}")
+                        texts.append(f"[Tableau {n_tab}, ligne {r}] | " + " | ".join(cells) + " |")
+
+        texts += self._docx_headers_footers(doc)
+        lines = _numbered(texts)
+        return ParsedDocument(_chunk_lines(name, lines, "Paragraphes"), [], _approx_pages(lines))
+
+    def _docx_headers_footers(self, doc) -> list[str]:
+        """En-têtes et pieds de page de toutes les sections, sans doublon ni simple numéro de page."""
+        seen: set[str] = set()
+        out: list[str] = []
+        for section in doc.sections:
+            for attr, label in (
+                ("header", "En-tête"), ("first_page_header", "En-tête"), ("even_page_header", "En-tête"),
+                ("footer", "Pied de page"), ("first_page_footer", "Pied de page"), ("even_page_footer", "Pied de page"),
+            ):
+                part = getattr(section, attr)
+                if part.is_linked_to_previous:
+                    continue
+                for el in part._element.iter(f"{_W}p"):
+                    text = _para_text(el)
+                    letters = re.sub(r"[\W\d_]+", "", text.lower())
+                    if not text or _PAGE_ONLY.match(letters) or text in seen:
+                        continue
+                    seen.add(text)
+                    out.append(f"[{label}] {text}")
+        return out
 
     # -- Excel / CSV ----------------------------------------------------------
 
-    def _rows_to_blocks(self, name: str, rows: list[list[str]], label_prefix: str = "") -> list[AnchoredTextBlock]:
-        """Lignes de tableau numérotées ; l'en-tête est rappelé en tête de chaque bloc."""
+    def _rows_to_blocks(self, name: str, rows: list[list[str]], label_prefix: str = "",
+                        raw: list[list[object]] | None = None) -> list[AnchoredTextBlock]:
+        """Lignes de tableau numérotées ; l'en-tête est rappelé en tête des blocs suivants.
+
+        Les colonnes vides sont retirées, la vraie ligne d'en-tête est cherchée sous les éventuels titres,
+        et un bloc de statistiques calculées par colonne suit les lignes.
+        """
         if not rows:
             return []
-        header = "| " + " | ".join(rows[0]) + " |"
+        keep = [j for j in range(max(len(r) for r in rows)) if any(j < len(r) and r[j] for r in rows)]
+        rows = [[r[j] if j < len(r) else "" for j in keep] for r in rows]
+        if raw is not None:
+            raw = [[r[j] if j < len(r) else None for j in keep] for r in raw]
+        h = sheet_stats.header_index(rows)
+        header = "| " + " | ".join(rows[h]) + " |"
         lines = [(f"L{i}", "| " + " | ".join(r) + " |") for i, r in enumerate(rows, start=1) if any(r)]
         blocks = _chunk_lines(name, lines, f"{label_prefix}Lignes")
-        for b in blocks[1:]:
-            b.content = f"(en-tête) {header}\n{b.content}"
+        past_header = False
+        for b in blocks:
+            if past_header:
+                b.content = f"(en-tête) {header}\n{b.content}"
+            past_header = past_header or f"L{h + 1}: " in b.content
+        stats = sheet_stats.column_stats(rows, h, raw)
+        if stats:
+            blocks.append(AnchoredTextBlock(name, f"{label_prefix}Statistiques", "\n".join(stats)))
         return blocks
 
     def _parse_excel(self, file_path: Path, name: str) -> ParsedDocument:
@@ -178,15 +360,14 @@ class MultiFormatDocumentParser:
         wb = openpyxl.load_workbook(filename=str(file_path), read_only=True, data_only=True)
         try:
             for sheet_name in wb.sheetnames:
-                rows = [
-                    [str(c).strip() if c is not None else "" for c in row]
-                    for row in wb[sheet_name].iter_rows(values_only=True)
-                ]
+                raw = [list(row) for row in wb[sheet_name].iter_rows(values_only=True)]
+                rows = [[sheet_stats.cell_text(c) for c in row] for row in raw]
                 while rows and not any(rows[-1]):
                     rows.pop()
+                raw = raw[: len(rows)]
                 total += sum(1 for r in rows if any(r))
                 prefix = f"Feuille '{sheet_name}', " if len(wb.sheetnames) > 1 else ""
-                out.blocks += self._rows_to_blocks(name, rows, prefix)
+                out.blocks += self._rows_to_blocks(name, rows, prefix, raw)
         finally:
             wb.close()
         out.units = _plural(total, "ligne")
@@ -256,6 +437,19 @@ class MultiFormatDocumentParser:
         blocks = _chunk_lines(name, lines, "Timestamp")
         duration = lines[-1][0] if lines and ":" in lines[-1][0] else ""
         return ParsedDocument(blocks, [], f"{duration} de transcription" if duration else _plural(len(lines), "réplique"))
+
+    # -- Page web ----------------------------------------------------------------
+
+    def _parse_html(self, file_path: Path, name: str) -> ParsedDocument:
+        lines = _numbered(html_lines(decode_text(file_path.read_bytes())))
+        return ParsedDocument(_chunk_lines(name, lines, "Paragraphes"), [], _approx_pages(lines))
+
+    # -- Projet Mapline ------------------------------------------------------------
+
+    def _parse_mapline(self, file_path: Path, name: str) -> ParsedDocument:
+        texts, units = mapline_lines(decode_text(file_path.read_bytes()))
+        lines = _numbered(texts)
+        return ParsedDocument(_chunk_lines(name, lines, "Paragraphes"), [], units)
 
     # -- Texte brut / Markdown -------------------------------------------------
 

@@ -1,7 +1,8 @@
 """Retrouve le passage d'origine d'une source citée (document + repère), pour la vérification en un clic.
 
-Chaque document est indexé ligne par ligne avec son repère : L12 (texte, CSV, Excel), §4 (Word),
-00:01:10 (sous-titres), ou « Page 3 » / « Slide 2 » (PDF, PowerPoint, lignes numérotées dans la page).
+Chaque document est indexé ligne par ligne avec son repère : L12 (texte, CSV, Excel), §4 (Word, HTML, Mapline),
+00:01:10 (sous-titres), ou « Page 3 » / « Slide 2 » / « Statistiques » (PDF, PowerPoint, statistiques d'un
+tableau : lignes numérotées dans le bloc).
 """
 from __future__ import annotations
 
@@ -59,6 +60,10 @@ def resolve(doc: _Doc, location: str) -> list[int]:
     if not loc:
         return []
 
+    if re.search(r"statistiques", loc, re.I):  # statistiques calculées d'un tableau (Excel, CSV)
+        stats = [i for i, ln in enumerate(lines) if ln.anchor.endswith("Statistiques")]
+        same_sheet = [i for i in stats if lines[i].anchor.lower() in loc.lower()]
+        return same_sheet or stats
     m = re.search(r"(?:p\.?|page)\s*(\d+)", loc, re.I)
     if m:
         return [i for i, ln in enumerate(lines) if ln.anchor == f"Page {m.group(1)}"]

@@ -58,7 +58,9 @@ export const LEVELS: { id: AnalysisLevel; title: string; desc: string; bars: num
 
 const BAR_WIDTHS = ['100%', '80%', '92%', '64%', '100%', '76%', '88%'];
 const TIER_FOR_LEVEL: Record<AnalysisLevel, ModelInfo['tier']> = { synth: 'fast', detail: 'balanced', deep: 'deep' };
-const ACCEPT = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.vtt,.srt';
+const ACCEPT = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.vtt,.srt,.html,.htm,.mapline,.missionmap';
+const ACCEPTED_EXTS = new Set(ACCEPT.split(',').map((e) => e.slice(1)));
+const LEGACY: Record<string, string> = { doc: 'docx', xls: 'xlsx', ppt: 'pptx' };
 
 const SectionTitle: React.FC<{ n: number; id: string; children: React.ReactNode; right?: React.ReactNode }> = ({
   n,
@@ -145,6 +147,14 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
         if (prev.some((f) => f.key === key)) return prev;
         return [...prev, { key, name: file.name, ext: extOf(file.name), size: file.size, status: 'uploading' }];
       });
+      // Un format non lu (image, archive…) glissé dans la zone est refusé ici, sans l'envoyer.
+      // Les anciens formats Office passent : le serveur explique comment les convertir.
+      const ext = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
+      if (!ACCEPTED_EXTS.has(ext) && !LEGACY[ext]) {
+        const error = `Format ${ext ? `.${ext}` : 'sans extension'} non lu par DocAnalyser (images et archives comprises).`;
+        setFiles((prev) => prev.map((f) => (f.key === key ? { ...f, status: 'error', error } : f)));
+        return;
+      }
       analysisApi
         .uploadDocument(file)
         .then((doc) =>
@@ -250,7 +260,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                 Glissez vos documents ici, ou <span className="text-accent underline">parcourez vos fichiers</span>
               </span>
               <span className="text-[13px] text-ink-muted">
-                PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT · plusieurs fichiers acceptés
+                PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT, HTML, MAPLINE · plusieurs fichiers acceptés
               </span>
               <input
                 ref={inputRef}

@@ -5,6 +5,29 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.3.0] — 2026-11-17
+
+### Ajouté
+
+- Pages web (.html, .htm) : texte visible, titres, listes et tableaux, sans scripts, styles ni menus.
+- Projets Mapline (.mapline, et .missionmap des anciennes versions) : cartes de parcours, flux, fiches persona et
+  plans du site, lus document par document dans l'ordre de l'outil.
+- Excel et CSV : un bloc « Statistiques » calculé par DocAnalyser (somme, moyenne, min, max des colonnes chiffrées,
+  répartition des colonnes à quelques valeurs), pour des chiffres exacts dans les synthèses et les réponses.
+- Word : zones de texte, notes de bas de page et de fin, en-têtes et pieds de page, texte des révisions.
+
+### Modifié
+
+- PDF : en-têtes et pieds de page répétés retirés (et signalés à l'import), tableaux rendus ligne par ligne.
+- Excel et CSV : la vraie ligne d'en-tête est cherchée sous les titres, les colonnes vides sont retirées, dates et
+  nombres sont écrits comme dans Excel (« 2025-01-03 », « 12 » au lieu de « 2025-01-03 00:00:00 », « 12.0 »).
+- Word : une cellule fusionnée n'est lue qu'une fois ; les listes numérotées sont repérées comme listes.
+
+### Corrigé
+
+- Un fichier d'un format non prévu (image, archive…) glissé dans la zone d'import était lu comme du texte et
+  analysé : il est maintenant refusé, avec la liste des formats acceptés.
+
 ## [2.2.0] — 2026-11-17
 
 ### Ajouté
