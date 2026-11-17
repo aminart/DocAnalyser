@@ -33,7 +33,8 @@ from app.core.config import settings
 from app.services import llm_client, store
 from app.services.errors import AnalysisError, InvalidModelOutput, ProviderUnavailable
 from app.services.models import (  # noqa: F401 : réexportés, utilisés via analysis_service ailleurs
-    ENV_PROVIDERS, ModelSpec, ProviderConf, all_models, fallback_chain, get_model, is_configured, model_options, providers,
+    APP_ID, ENV_PROVIDERS, STUDIODOCK, ModelSpec, ProviderConf, all_models, connexions_studiodock, fallback_chain, get_model,
+    is_configured, model_options, providers,
 )
 from app.services.normalize import (  # noqa: F401
     QuoteChecker, _match_doc, _s, _str_list, normalize_flow, normalize_journey, normalize_themes,

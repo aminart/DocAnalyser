@@ -164,7 +164,9 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
   const configured = models.filter((m) => m.configured);
   const recommended = useMemo(() => {
     const tier = TIER_FOR_LEVEL[level];
-    return configured.find((m) => m.tier === tier) ?? configured.find((m) => m.tier === 'balanced') ?? configured[0];
+    // Le modèle choisi pour DocAnalyser dans Studio Dock passe avant la recommandation par niveau
+    return configured.find((m) => m.preferred) ?? configured.find((m) => m.tier === tier)
+      ?? configured.find((m) => m.tier === 'balanced') ?? configured[0];
   }, [configured, level]);
   // Tant que l'utilisateur n'a pas choisi, on suit la recommandation.
   const selectedModel = models.find((m) => m.id === pickedModel && m.configured) ?? recommended;

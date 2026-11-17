@@ -13,6 +13,8 @@ export interface ModelInfo {
   economy: number;
   tier: 'deep' | 'balanced' | 'fast';
   configured: boolean;
+  /** Modèle choisi pour DocAnalyser dans Studio Dock : proposé d'office. */
+  preferred?: boolean;
 }
 
 export interface UploadedDocument {
@@ -228,8 +230,9 @@ export interface ConnectionTest {
 
 export interface Connection {
   id: string;
-  /** app : enregistrée depuis l'écran ; env : déclarée dans le fichier .env (lecture seule). */
-  source: 'app' | 'env';
+  /** app : enregistrée depuis l'écran ; env : déclarée dans le fichier .env ; studiodock : réglée dans Studio Dock
+   * (Réglages › Modèles d'IA). Les deux dernières sont en lecture seule. */
+  source: 'app' | 'env' | 'studiodock';
   env_prefix?: string;
   kind: ConnectionKind;
   kind_label: string;
@@ -248,6 +251,8 @@ export interface ConnectionsState {
   connections: Connection[];
   env_file: string | null;
   storage_dir: string;
+  /** Studio Dock laisse à DocAnalyser sa configuration propre. */
+  studiodock_own?: boolean;
   created?: string;
 }
 

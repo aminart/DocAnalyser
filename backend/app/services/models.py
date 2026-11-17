@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from app.core import connexions
+from app.core import connexions, studiodock_ia
 from app.core.config import settings
 from app.services import llm_client
 from app.services.errors import AnalysisError
@@ -53,6 +53,9 @@ def providers() -> list[ProviderConf]:
 
     - CUSTOM_LLM / CUSTOM_LLM_2 : endpoints compatibles OpenAI.
     - GEMINI / ANTHROPIC : clés de test, proposées seulement si la clé est renseignée.
+    - Connexions de Studio Dock (Réglages › Modèles d'IA, lues avec app/core/studiodock_ia.py) : communes à
+      toutes les apps de la suite, en lecture seule ici ; ignorées si Studio Dock garde à DocAnalyser sa
+      configuration propre.
     - Connexions de l'écran Réglages (app/core/connexions.py) : autant que voulu, chacune avec ses modèles.
     """
     out = [
@@ -80,6 +83,12 @@ def providers() -> list[ProviderConf]:
             base = llm_client.GEMINI_BASE if kind == "gemini" else llm_client.ANTHROPIC_BASE
             out.append(ProviderConf(key, kind, name, api_key.strip(), base, (ca or "").strip(), ctx, _names(models),
                                     max_output_tokens=32_000))
+    for c in connexions_studiodock():
+        out.append(ProviderConf(
+            key=f"{STUDIODOCK}{c.id}", kind="openai", name=c.name, api_key=c.api_key, api_base=c.api_base,
+            ca_bundle=c.ca_bundle, context_tokens=c.context_tokens, models=c.models,
+            max_output_tokens=c.max_output_tokens,
+        ))
     for c in connexions.lister():
         base = {"gemini": llm_client.GEMINI_BASE, "anthropic": llm_client.ANTHROPIC_BASE}.get(c.kind, c.api_base)
         out.append(ProviderConf(
@@ -91,6 +100,19 @@ def providers() -> list[ProviderConf]:
 
 
 ENV_PROVIDERS = ("CUSTOM_LLM", "CUSTOM_LLM_2", "GEMINI", "ANTHROPIC")
+STUDIODOCK = "studiodock-"  # préfixe des fournisseurs venus de Studio Dock
+APP_ID = "docanalyser"  # identifiant de DocAnalyser dans le catalogue de Studio Dock
+
+
+def connexions_studiodock() -> list[studiodock_ia.Connexion]:
+    """Connexions de Studio Dock, sauf si Studio Dock garde à DocAnalyser sa configuration propre."""
+    return [] if studiodock_ia.garde_sa_configuration(APP_ID) else studiodock_ia.connexions()
+
+
+def modele_studiodock() -> str | None:
+    """Identifiant du modèle choisi pour DocAnalyser dans Studio Dock (proposé d'office), ou None."""
+    choix = studiodock_ia.pour_app(APP_ID)
+    return f"{STUDIODOCK}{choix.connexion.id}:{choix.model}" if choix else None
 
 
 # Profil déduit du nom du modèle : la liste elle-même vient uniquement du .env.
@@ -131,6 +153,7 @@ def is_configured(spec: ModelSpec) -> bool:
 
 
 def model_options() -> list[dict[str, Any]]:
+    prefere = modele_studiodock()
     return [
         {
             "id": m.id,
@@ -143,6 +166,7 @@ def model_options() -> list[dict[str, Any]]:
             "economy": m.economy,
             "tier": m.tier,
             "configured": is_configured(m),
+            "preferred": m.id == prefere,  # choisi pour DocAnalyser dans Studio Dock
         }
         for m in all_models()
     ]
