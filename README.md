@@ -111,6 +111,20 @@ En cas de quota dépassé ou de surcharge, l'analyse bascule automatiquement sur
 
 **Taille des fichiers** : un fichier importé est limité à 50 Mo ; `MAX_UPLOAD_MB` relève ou abaisse cette limite. Les anciens formats Office (`.doc`, `.xls`, `.ppt`) ne sont pas lus : enregistrez-les d'abord en `.docx`, `.xlsx` ou `.pptx`.
 
+**Formats lus** :
+
+| Format | Ce qui est lu |
+|---|---|
+| PDF | Texte de chaque page dans l'ordre de lecture. Les en-têtes et pieds de page répétés sur la plupart des pages (titre courant, « Page 3 / 12 ») sont retirés et signalés à l'import ; les tableaux sont rendus ligne par ligne (« \| France \| 120 \| »). Les pages scannées, sans texte, sont signalées mais pas lues : océrisez-les d'abord. |
+| Word (.docx) | Paragraphes, titres et listes, tableaux à leur place (cellule fusionnée lue une fois), zones de texte, notes de bas de page et de fin (placées après le paragraphe qui les appelle), révisions acceptées, en-têtes et pieds de page. |
+| PowerPoint (.pptx) | Texte des formes de haut en bas, tableaux, notes de l'orateur. |
+| Excel (.xlsx), CSV | Toutes les feuilles ; la vraie ligne d'en-tête est cherchée sous les titres éventuels et rappelée en tête de chaque bloc ; colonnes vides retirées. Un bloc « Statistiques », calculé par DocAnalyser, donne la somme, la moyenne, le min et le max des colonnes chiffrées et la répartition des colonnes à quelques valeurs (statut, oui/non), pour que le modèle cite des chiffres exacts au lieu de les estimer. |
+| Texte, Markdown, VTT/SRT | Lignes numérotées ; horodatages pour les sous-titres. |
+| Page web (.html, .htm) | Texte visible, titres, listes et tableaux, sans scripts, styles, menus de navigation ni éléments masqués. |
+| Projet Mapline (.mapline, .missionmap) | Cartes de parcours (phases, étapes, personas, activités et alternatives, étiquettes, commentaires, storyboard, lignes de texte, liens), flux, fiches persona et plans du site. Les images ne sont pas lues. |
+
+Tout autre format (images, archives, .json…) est refusé à l'import avec un message, au lieu d'être lu comme du texte.
+
 Redémarrez l'application après toute modification du `.env` (les changements faits dans l'écran Réglages s'appliquent tout de suite). Ne versionnez jamais `backend/.env` (il est exclu par `.gitignore`).
 
 ## Versions
@@ -174,7 +188,7 @@ PYTHON=../backend/.venv/bin/python npm run e2e   # bout en bout : vrai backend, 
 
 La CI GitHub lance les trois : tests backend, tests de l'interface, tests de bout en bout. Pour tester un modèle précis, ajoutez par exemple `TEST_MODEL="CUSTOM_LLM:mistral-medium-latest"` ; sinon, le premier modèle configuré est utilisé.
 
-- **Tests rapides** : lecture de chaque format (pages scannées signalées, tableaux Word à leur place, formes PowerPoint groupées, CSV Windows-1252), vérification des verbatims, résolution des sources, contrôle de couverture, graphe de flux, aperçu en streaming, historique après redémarrage.
+- **Tests rapides** : lecture de chaque format (pages scannées signalées, en-têtes et tableaux PDF, notes et zones de texte Word, statistiques Excel, formes PowerPoint groupées, CSV Windows-1252, HTML, projets Mapline, formats inconnus refusés), vérification des verbatims, résolution des sources, contrôle de couverture, graphe de flux, aperçu en streaming, historique après redémarrage.
 - **Tests avec modèle**, sur les documents de `backend/tests/fixtures/` :
   - aux trois niveaux, aucune information clé perdue, y compris en fin de document ;
   - tous les documents exploités, aucun verbatim inventé, une source par point, des repères existants ;
@@ -185,7 +199,7 @@ La CI GitHub lance les trois : tests backend, tests de l'interface, tests de bou
 
 - `GET /health` : état et version de l'application (contrat du portail)
 - `GET /api/v2/models` : modèles déclarés et leur disponibilité
-- `POST /api/v2/documents` : import et lecture d'un fichier (PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT)
+- `POST /api/v2/documents` : import et lecture d'un fichier (PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT, HTML, MAPLINE)
 - `POST /api/v2/analyses` puis `GET /api/v2/analyses/{id}` : analyse en 5 étapes avec aperçu des thèmes en direct
 - `GET /api/v2/analyses` : historique
 - `POST /api/v2/analyses/{id}/cancel` : annulation

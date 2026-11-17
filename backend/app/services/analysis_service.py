@@ -39,7 +39,7 @@ from app.services.models import (  # noqa: F401 : réexportés, utilisés via an
 from app.services.normalize import (  # noqa: F401
     QuoteChecker, _match_doc, _s, _str_list, normalize_flow, normalize_journey, normalize_themes,
 )
-from app.services.parser_service import AnchoredTextBlock, MultiFormatDocumentParser
+from app.services.parser_service import AnchoredTextBlock, MultiFormatDocumentParser, UnsupportedFormat, check_format
 from app.services.prompts import (  # noqa: F401
     BASE_RULES, COMPLETENESS_RULE, LEVEL_GUIDANCE, LEVEL_LABELS, MODE_GUIDANCE, MODE_LABELS, _full_prompt,
     _language_rule, _outline_prompt,
@@ -226,6 +226,10 @@ def store_document(content: bytes, file_name: str) -> StoredDocument:
             f"{safe_name} est à l'ancien format {suffix}, que DocAnalyser ne sait pas lire. Ouvrez-le dans "
             f"Office et enregistrez-le au format {modern} (Fichier › Enregistrer sous), puis importez-le à nouveau."
         )
+    try:
+        check_format(safe_name, content)
+    except UnsupportedFormat as exc:
+        raise AnalysisError(str(exc)) from exc
     doc_id = str(uuid.uuid4())
     path = settings.STORAGE_DIR / f"v2_{doc_id}_{safe_name}"
     path.write_bytes(content)

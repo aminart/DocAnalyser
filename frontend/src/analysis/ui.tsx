@@ -105,6 +105,10 @@ const EXT_COLORS: Record<string, [string, string]> = {
   ppt: ['var(--ad-cat2-soft)', 'var(--ad-cat2-ink)'],
   vtt: ['var(--ad-cat4-soft)', 'var(--ad-cat4-ink)'],
   srt: ['var(--ad-cat4-soft)', 'var(--ad-cat4-ink)'],
+  html: ['var(--ad-cat3-soft)', 'var(--ad-cat3-ink)'],
+  htm: ['var(--ad-cat3-soft)', 'var(--ad-cat3-ink)'],
+  mapline: ['var(--ad-cat5-soft)', 'var(--ad-cat5-ink)'],
+  missionmap: ['var(--ad-cat5-soft)', 'var(--ad-cat5-ink)'],
 };
 
 export const extColors = (ext: string): [string, string] => EXT_COLORS[ext.toLowerCase()] ?? ['var(--nn-surface-3)', 'var(--nn-ink-muted)'];

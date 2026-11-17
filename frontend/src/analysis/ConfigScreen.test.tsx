@@ -71,4 +71,16 @@ describe('ConfigScreen', () => {
     render(<ConfigScreen onLaunched={vi.fn()} />);
     expect((await screen.findByRole('alert')).textContent).toMatch(/Serveur injoignable/);
   });
+
+  it('refuse une image glissée dans la zone sans l’envoyer au serveur', async () => {
+    api.listModels.mockResolvedValue([model]);
+    api.uploadDocument.mockClear();
+    const { container } = render(<ConfigScreen onLaunched={vi.fn()} />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['png'], 'capture.png')] } });
+
+    const refused = (await screen.findByText(/Format \.png non lu/)).closest('li')!;
+    expect(within(refused).getByText('Erreur')).toBeTruthy();
+    expect(api.uploadDocument).not.toHaveBeenCalled();
+  });
 });
