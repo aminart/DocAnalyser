@@ -24,6 +24,8 @@ class AnalysisCreate(BaseModel):
     model_id: str
     language: Literal["fr", "en"] = "fr"
     cite: bool = True
+    # Pages (ou slides) à analyser, par document : {"id du document": "12-45, 80"} ; absent = document entier
+    sections: dict[str, str] = Field(default_factory=dict)
 
 
 def _get(analysis_id: str) -> svc.Analysis:
@@ -80,7 +82,8 @@ async def list_analyses() -> list[dict]:
 async def create_analysis(payload: AnalysisCreate) -> dict:
     try:
         analysis = svc.create_analysis(
-            payload.document_ids, payload.mode, payload.level, payload.model_id, payload.language, payload.cite
+            payload.document_ids, payload.mode, payload.level, payload.model_id, payload.language, payload.cite,
+            payload.sections,
         )
     except svc.AnalysisError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

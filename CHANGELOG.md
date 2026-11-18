@@ -5,6 +5,14 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.4.0] — 2026-11-18
+
+### Ajouté
+
+- Choix des pages à analyser : pour un PDF (ou des slides pour un PowerPoint), un champ « Pages à analyser »
+  (par exemple « 12-45, 80 ») sous le document importé. Seules ces pages sont envoyées au modèle ; les sources
+  citées gardent leur numéro de page d'origine. Vide, le document est analysé en entier.
+
 ## [2.3.1] — 2026-11-18
 
 ### Corrigé

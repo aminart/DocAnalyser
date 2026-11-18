@@ -25,6 +25,9 @@ export interface UploadedDocument {
   units: string;
   pages: number;
   warnings: string[]; // parties non lues (pages scannées, slides sans texte…)
+  /** Le document se découpe en pages (PDF) ou slides (PowerPoint) qu'on peut choisir d'analyser. */
+  sections?: 'pages' | 'slides' | null;
+  last_section?: number;
 }
 
 export interface AnalysisStep {

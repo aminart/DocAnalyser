@@ -38,6 +38,8 @@ export const analysisApi = {
     model_id: string;
     language: 'fr' | 'en';
     cite: boolean;
+    /** Pages (ou slides) à analyser par document, ex. { d1: '12-45, 80' } ; absent = document entier. */
+    sections?: Record<string, string>;
   }): Promise<Analysis> {
     return request<Analysis>('/analyses', {
       method: 'POST',

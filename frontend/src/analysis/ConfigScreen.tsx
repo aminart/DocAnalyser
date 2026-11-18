@@ -11,7 +11,23 @@ interface FileEntry {
   status: 'uploading' | 'ready' | 'error';
   doc?: UploadedDocument;
   error?: string;
+  selection?: string; // pages ou slides à analyser (« 12-45, 80 ») ; vide = tout le document
 }
+
+/** Nombre de pages d'une sélection « 12-45, 80 », pour l'estimation de durée ; null si illisible ou vide. */
+export const countSelection = (text: string, last: number): number | null => {
+  const parts = text.replace(/\s*(?:-|–|à)\s*/g, '-').split(/[,;\s]+/).filter(Boolean);
+  if (!parts.length) return null;
+  const pages = new Set<number>();
+  for (const part of parts) {
+    const m = /^(\d*)-(\d*)$|^(\d+)$/.exec(part);
+    if (!m || part === '-') return null;
+    let [a, b] = m[3] ? [+m[3], +m[3]] : [+(m[1] || 1), +(m[2] || last)];
+    if (a > b) [a, b] = [b, a];
+    for (let i = Math.max(1, a); i <= Math.min(b, last); i++) pages.add(i);
+  }
+  return pages.size;
+};
 
 export const MODES: {
   id: AnalysisMode;
@@ -166,6 +182,9 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
     });
   }, []);
 
+  const setSelection = (key: string, selection: string) =>
+    setFiles((prev) => prev.map((f) => (f.key === key ? { ...f, selection } : f)));
+
   const removeFile = (entry: FileEntry) => {
     if (entry.doc) analysisApi.deleteDocument(entry.doc.id);
     setFiles((prev) => prev.filter((f) => f.key !== entry.key));
@@ -188,7 +207,12 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
   const uploading = files.some((f) => f.status === 'uploading');
   const fileCountLabel = `${ready.length} fichier${ready.length > 1 ? 's' : ''}`;
   const lvl = LEVELS.find((l) => l.id === level)!;
-  const totalPages = ready.reduce((n, f) => n + (f.doc?.pages ?? 0), 0);
+  const pagesOf = (f: FileEntry): number => {
+    const all = f.doc?.pages ?? 0;
+    if (!f.selection?.trim() || f.doc?.sections !== 'pages') return all;
+    return Math.min(all, countSelection(f.selection, f.doc.last_section ?? all) ?? all);
+  };
+  const totalPages = ready.reduce((n, f) => n + pagesOf(f), 0);
   const eta = `≈ ${lvl.minutes + Math.floor(totalPages / 150)} min`;
 
   const canLaunch = ready.length > 0 && !uploading && !!selectedModel && !submitting;
@@ -212,6 +236,9 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
         model_id: selectedModel.id,
         language,
         cite,
+        sections: Object.fromEntries(
+          ready.filter((f) => f.doc?.sections && f.selection?.trim()).map((f) => [f.doc!.id, f.selection!.trim()]),
+        ),
       });
       onLaunched(analysis);
     } catch (e) {
@@ -292,6 +319,23 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                           ⚠ {w}
                         </span>
                       ))}
+                      {f.status === 'ready' && f.doc?.sections && (
+                        <label className="mt-2 flex flex-wrap items-center gap-2 text-[13px] text-ink-muted">
+                          <span className="font-semibold text-ink">
+                            {f.doc.sections === 'pages' ? 'Pages à analyser' : 'Slides à analyser'}
+                          </span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={f.selection ?? ''}
+                            onChange={(e) => setSelection(f.key, e.target.value)}
+                            placeholder={`toutes (1-${f.doc.last_section})`}
+                            aria-label={`${f.doc.sections === 'pages' ? 'Pages' : 'Slides'} à analyser dans ${f.name}`}
+                            className="min-h-[36px] w-[180px] rounded-lg border border-line-strong bg-surface px-3 text-sm text-ink placeholder:text-ink-muted"
+                          />
+                          <span>ex. 12-45, 80</span>
+                        </label>
+                      )}
                     </span>
                     <span
                       className={`flex shrink-0 items-center gap-1.5 text-[13px] font-semibold ${

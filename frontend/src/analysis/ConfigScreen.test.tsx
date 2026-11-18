@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { analysisApi } from './api';
-import { ConfigScreen } from './ConfigScreen';
+import { ConfigScreen, countSelection } from './ConfigScreen';
 import { Analysis, ModelInfo } from './types';
 
 vi.mock('./api', () => ({
@@ -82,5 +82,33 @@ describe('ConfigScreen', () => {
     const refused = (await screen.findByText(/Format \.png non lu/)).closest('li')!;
     expect(within(refused).getByText('Erreur')).toBeTruthy();
     expect(api.uploadDocument).not.toHaveBeenCalled();
+  });
+
+  it('analyse seulement les pages choisies d’un PDF', async () => {
+    api.listModels.mockResolvedValue([model]);
+    api.uploadDocument.mockResolvedValue({
+      id: 'p1', name: 'rapport.pdf', ext: 'pdf', size_bytes: 10, units: '299 pages', pages: 299, warnings: [],
+      sections: 'pages', last_section: 299,
+    });
+    api.createAnalysis.mockResolvedValue({ id: 'a2' } as Analysis);
+    const { container } = render(<ConfigScreen onLaunched={vi.fn()} />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['%PDF'], 'rapport.pdf')] } });
+
+    const pages = await screen.findByLabelText('Pages à analyser dans rapport.pdf');
+    fireEvent.change(pages, { target: { value: '12-45, 80' } });
+    const launch = screen.getByRole('button', { name: /Analyser/ });
+    await waitFor(() => expect((launch as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(launch);
+    await waitFor(() =>
+      expect(api.createAnalysis).toHaveBeenCalledWith(expect.objectContaining({ sections: { p1: '12-45, 80' } })),
+    );
+  });
+
+  it('compte les pages d’une sélection', () => {
+    expect(countSelection('12-45, 80', 299)).toBe(35);
+    expect(countSelection('12 à 14 ; 290-', 299)).toBe(13);
+    expect(countSelection('abc', 299)).toBeNull();
+    expect(countSelection('', 299)).toBeNull();
   });
 });

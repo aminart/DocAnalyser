@@ -226,7 +226,21 @@ class StoredDocument:
     def plain_text(self) -> str:
         return "\n".join(b.plain_text() for b in self.blocks)
 
+    def numbered(self) -> tuple[str, int] | None:
+        """(« pages » ou « slides », dernier numéro) si le document se découpe en pages ou slides numérotées."""
+        nums, kinds = [], set()
+        for b in self.blocks:
+            m = _NUMBERED.match(b.location)
+            if not m:
+                return None
+            kinds.add(m.group(1))
+            nums.append(int(m.group(2)))
+        if len(kinds) != 1 or not nums:
+            return None
+        return ("pages" if kinds == {"Page"} else "slides"), max(nums)
+
     def public(self) -> dict[str, Any]:
+        numbered = self.numbered()
         return {
             "id": self.id,
             "name": self.name,
@@ -235,7 +249,62 @@ class StoredDocument:
             "units": self.units,
             "pages": self.pages,
             "warnings": self.warnings,
+            "sections": numbered[0] if numbered else None,  # pages ou slides qu'on peut choisir d'analyser
+            "last_section": numbered[1] if numbered else 0,
         }
+
+
+_NUMBERED = re.compile(r"^(Page|Slide) (\d+)$")
+
+
+def parse_selection(text: str, last: int, word: str = "page") -> list[tuple[int, int]]:
+    """« 12-45, 80, 100- » → [(12, 45), (80, 80), (100, last)] ; message clair si la saisie est illisible."""
+    ranges = []
+    text = re.sub(r"\s*(?:-|–|à)\s*", "-", text.strip())  # « 12 à 45 », « 12 – 45 » → « 12-45 »
+    for part in re.split(r"[,;\s]+", text):
+        if not part:
+            continue
+        m = re.fullmatch(r"(\d*)-(\d*)|(\d+)", part)
+        if not m or part == "-":
+            raise AnalysisError(f"« {part} » n'est pas une sélection de {word}s lisible : écrivez par exemple 12-45, 80.")
+        start, end = (int(m.group(3)), int(m.group(3))) if m.group(3) else (int(m.group(1) or 1), int(m.group(2) or last))
+        if start > end:
+            start, end = end, start
+        if start < 1 or start > last:
+            raise AnalysisError(f"La {word} {start} n'existe pas : le document va de 1 à {last}.")
+        ranges.append((start, min(end, last)))
+    return ranges
+
+
+def select_sections(doc: StoredDocument, text: str) -> StoredDocument:
+    """Copie du document réduite aux pages (ou slides) choisies, enregistrée comme un document à part.
+
+    Le nom reste le même : les sources citées (« Page 12 ») renvoient toujours au bon passage.
+    """
+    numbered = doc.numbered()
+    if not numbered:
+        raise AnalysisError(f"{doc.name} ne se découpe pas en pages : il est analysé en entier.")
+    kind, last = numbered
+    word = kind[:-1]
+    ranges = parse_selection(text, last, word)
+    if not ranges:
+        return doc
+    keep = lambda n: any(a <= n <= b for a, b in ranges)  # noqa: E731
+    blocks = [b for b in doc.blocks if keep(int(_NUMBERED.match(b.location).group(2)))]
+    if not blocks:
+        raise AnalysisError(f"Aucune {word} avec du texte dans la sélection « {text} » de {doc.name}.")
+    label = ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in ranges)
+    unit = "p." if kind == "pages" else "slides"
+    plural = "s" if len(blocks) > 1 else ""
+    selected = StoredDocument(
+        str(uuid.uuid4()), doc.name, doc.ext, doc.size_bytes,
+        f"{len(blocks)} {word}{plural} sur {doc.units} ({unit} {label})",
+        len(blocks) if kind == "pages" else max(1, round(sum(len(b.content) for b in blocks) / 2500)),
+        blocks, doc.warnings,
+    )
+    DOCUMENTS[selected.id] = selected
+    store.save_document(selected)
+    return selected
 
 
 DOCUMENTS: dict[str, StoredDocument] = {}
@@ -392,8 +461,10 @@ ANALYSES: dict[str, Analysis] = {}
 
 
 def create_analysis(
-    document_ids: list[str], mode: str, level: str, model_id: str, language: str, cite: bool
+    document_ids: list[str], mode: str, level: str, model_id: str, language: str, cite: bool,
+    sections: dict[str, str] | None = None,
 ) -> Analysis:
+    """sections : pages (ou slides) à analyser par document, par exemple {id: "12-45, 80"} ; absent = tout."""
     if mode not in MODE_LABELS:
         raise AnalysisError(f"Mode inconnu : {mode}")
     if level not in LEVEL_LABELS:
@@ -406,7 +477,8 @@ def create_analysis(
         doc = DOCUMENTS.get(doc_id)
         if not doc:
             raise AnalysisError("Un des documents est introuvable : importez-le à nouveau.")
-        docs.append(doc)
+        wanted = (sections or {}).get(doc_id, "").strip()
+        docs.append(select_sections(doc, wanted) if wanted else doc)
     if not docs:
         raise AnalysisError("Importez au moins un document.")
 
