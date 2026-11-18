@@ -84,12 +84,14 @@ async def _complete(
         {"role": "user", "content": user_content},
     ]
     parts: list[str] = []
+    timeout = request_timeout(spec, streaming=on_text is not None)
     for _ in range(1 + MAX_CONTINUATIONS):
         chunk, finish = await llm_client.chat(
             base_url=prov.api_base, api_key=prov.api_key, model=spec.name, messages=messages,
             temperature=TEMPERATURE, max_tokens=prov.max_output_tokens, json_mode=json_mode,
             ca_bundle=prov.ca_bundle,
             on_delta=(lambda text, done="".join(parts): on_text(done + text)) if on_text else None,
+            timeout=timeout,
         )
         parts.append(chunk)
         if finish != "length" or not chunk:
@@ -112,6 +114,27 @@ async def _complete(
     return content
 
 
+def request_timeout(spec: ModelSpec, streaming: bool = False) -> float:
+    """Attente maximale d'une réponse : plus longue pour un modèle sur ce poste (lent sur un gros lot).
+
+    En streaming, le délai porte sur chaque morceau ; seul un modèle local, qui peut lire longtemps un gros
+    lot avant d'écrire le premier mot, garde son délai complet.
+    """
+    if spec.provider.local:
+        return float(settings.LOCAL_LLM_TIMEOUT_SECONDS)
+    return llm_client.STREAM_READ_TIMEOUT if streaming else float(settings.LLM_TIMEOUT_SECONDS)
+
+
+def concurrency(spec: ModelSpec) -> int:
+    """Appels simultanés au modèle : un seul à la fois, par défaut, pour un modèle sur ce poste."""
+    limit = settings.LOCAL_CONCURRENT_LLM_REQUESTS if spec.provider.local else settings.MAX_CONCURRENT_LLM_REQUESTS
+    return max(1, limit)
+
+
+def _minutes(seconds: float) -> str:
+    return f"{round(seconds / 60)} min" if seconds >= 120 else f"{round(seconds)} s"
+
+
 _RETRYABLE = llm_client.RETRYABLE
 RETRY_WAITS = (5, 15, 40)  # secondes, en cas de surcharge du fournisseur
 
@@ -129,7 +152,13 @@ def _friendly_error(spec: ModelSpec, exc: Exception) -> str:
         return (f"Le fournisseur de {spec.name} est momentanément indisponible et n'a pas répondu malgré plusieurs "
                 f"essais ({reason}). Relancez l'analyse dans quelques minutes.")
     if isinstance(exc, llm_client.TimeoutError):
-        return f"Le modèle {spec.name} n'a pas répondu à temps. Réessayez avec un niveau moins détaillé."
+        wait = _minutes(request_timeout(spec))
+        if spec.provider.local:
+            return (f"Le modèle {spec.name}, sur ce poste, n'a pas répondu en {wait}. Il est peut-être surchargé ou "
+                    "a manqué de mémoire (voir la fenêtre d'Ollama). Allongez LOCAL_LLM_TIMEOUT_SECONDS ou réduisez "
+                    "LOCAL_MAX_REQUEST_TOKENS dans backend/.env, ou choisissez un modèle plus léger.")
+        return (f"Le modèle {spec.name} n'a pas répondu en {wait}. Réessayez avec un niveau moins détaillé, "
+                "ou allongez LLM_TIMEOUT_SECONDS dans backend/.env.")
     if isinstance(exc, llm_client.ContextWindowExceededError):
         return f"Le corpus dépasse la fenêtre de contexte de {spec.name} : réduisez MAX_REQUEST_TOKENS ou CONTEXT_TOKENS."
     if isinstance(exc, llm_client.BadRequestError):
@@ -459,6 +488,7 @@ async def _call(
                 # limite par minute : elle se lève d'elle-même, on réessaie après une pause
             except llm_client.TimeoutError as exc:
                 last = exc
+                logger.warning("%s n'a pas répondu en %s", spec.name, _minutes(request_timeout(spec, on_text is not None)))
                 break  # modèle bloqué : on passe directement au suivant plutôt que de l'attendre à nouveau
             except _RETRYABLE as exc:
                 last = exc
@@ -467,7 +497,8 @@ async def _call(
             except Exception as exc:
                 logger.warning("Appel à %s refusé : %s", spec.name, exc)  # détail complet dans la console du backend
                 raise AnalysisError(_friendly_error(spec, exc)) from exc
-    raise ProviderUnavailable(_friendly_error(chain[-1] if len(chain) > 1 else chain[0], last or Exception()))
+    raise ProviderUnavailable(_friendly_error(chain[-1] if len(chain) > 1 else chain[0], last or Exception()),
+                              timed_out=isinstance(last, llm_client.TimeoutError))
 
 
 def _enter(analysis: Analysis, step: int) -> None:
@@ -486,9 +517,11 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
         corpus = "\n".join(segments)
         checker = QuoteChecker("\n".join(d.plain_text() for d in analysis.documents))
         await asyncio.sleep(0.6)  # laisse l'interface afficher l'étape
+        if spec.provider.local:
+            await _fit_local_context(analysis, chain[0])
 
         run_batches = batch_pipeline.run_flow if analysis.mode == "flow" else batch_pipeline.run_themes
-        if batch_pipeline.needs_batches(chain[0], corpus):
+        if batch_pipeline.needs_batches(chain[0], corpus, analysis.context_cap):
             # Corpus plus grand que la fenêtre du modèle : extraction par lots, puis rédaction thème par thème.
             analysis.batched = True
             data = await run_batches(analysis, chain, checker)
@@ -532,6 +565,39 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
     finally:
         if analysis.id in ANALYSES:  # pas d'enregistrement si l'analyse vient d'être supprimée
             store.save_analysis(analysis)
+
+
+LOCAL_MIN_CONTEXT = RESERVED_TOKENS + 8_000  # en dessous, un lot ne laisse presque plus de place au texte
+
+
+async def _fit_local_context(analysis: Analysis, spec: ModelSpec) -> None:
+    """Modèle Ollama : vérifie la fenêtre réellement ouverte, que l'adresse compatible OpenAI ne laisse pas choisir.
+
+    Une fenêtre plus petite que les requêtes prévues ferait couper chaque lot sans prévenir : les requêtes sont
+    alors réduites à cette fenêtre, ou l'analyse s'arrête tout de suite avec la marche à suivre.
+    """
+    from app.services import batch_pipeline
+
+    try:
+        # Petite requête : charge le modèle (ce qui serait fait de toute façon) pour lire sa fenêtre.
+        await llm_client.chat(base_url=spec.provider.api_base, api_key=spec.provider.api_key, model=spec.name,
+                              messages=[{"role": "user", "content": "OK"}], max_tokens=1,
+                              ca_bundle=spec.provider.ca_bundle, timeout=request_timeout(spec))
+        ctx = await llm_client.ollama_context_length(spec.provider.api_base, spec.name, spec.provider.ca_bundle)
+    except llm_client.LLMError:
+        return  # le vrai appel donnera l'erreur, avec son message
+    planned = batch_pipeline.window_tokens(spec, analysis.context_cap)
+    if not ctx or ctx >= planned:
+        return
+    if ctx < LOCAL_MIN_CONTEXT:
+        raise AnalysisError(
+            f"Ollama n'ouvre que {ctx:,} tokens de contexte pour {spec.name}, alors que DocAnalyser a besoin d'au "
+            f"moins {LOCAL_MIN_CONTEXT:,} (ici {planned:,}) : la fin de chaque lot serait ignorée sans prévenir. "
+            f"Dans Ollama, réglez « Context length » (ou la variable OLLAMA_CONTEXT_LENGTH) à {planned:,} ou plus, "
+            "redémarrez Ollama, puis relancez l'analyse.".replace(",", " ")
+        )
+    analysis.context_cap = ctx
+    logger.warning("Fenêtre d'Ollama pour %s : %s tokens (au lieu de %s prévus)", spec.name, ctx, planned)
 
 
 def _flag_sources(result: dict[str, Any], documents: list[StoredDocument]) -> None:

@@ -27,3 +27,14 @@ def pytest_collection_modifyitems(config, items):
 @pytest.fixture
 def fixtures_dir() -> Path:
     return FIXTURES
+
+
+@pytest.fixture(autouse=True)
+def _lots_vides():
+    """Lots extraits gardés pour la reprise : vidés avant chaque test, qui ne doit pas profiter d'un autre."""
+    import shutil
+
+    from app.core.config import settings
+
+    shutil.rmtree(settings.STORAGE_DIR / "lots", ignore_errors=True)
+    yield

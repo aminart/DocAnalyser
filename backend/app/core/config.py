@@ -57,6 +57,15 @@ class Settings(BaseSettings):
     # Documents importés et historique des analyses (hors de /tmp, que macOS vide au redémarrage)
     STORAGE_DIR: Path = connexions.dossier_config() / "donnees" if EMPAQUETE else BACKEND_DIR / "data"
     MAX_CONCURRENT_LLM_REQUESTS: int = 4
+    # Attente maximale d'une réponse du modèle (secondes), modèles en ligne puis modèles sur ce poste (Ollama…).
+    # Un modèle local traite un gros lot bien plus lentement qu'un service en ligne.
+    LLM_TIMEOUT_SECONDS: int = 600
+    LOCAL_LLM_TIMEOUT_SECONDS: int = 1800
+    # Modèles sur ce poste : la carte graphique traite les requêtes une par une ; envoyées en parallèle, elles
+    # attendent leur tour en consommant leur délai. Lots plus petits aussi : réponses plus rapides, et la fenêtre
+    # réellement ouverte par Ollama est souvent bien plus petite que la fenêtre théorique du modèle.
+    LOCAL_CONCURRENT_LLM_REQUESTS: int = 1
+    LOCAL_MAX_REQUEST_TOKENS: int = 32_000  # 0 = pas de plafond propre aux modèles locaux
     # Taille maximale d'une requête (tokens), en dessous de la fenêtre du modèle : utile quand l'offre limite
     # le volume par minute (ex. clé Gemini gratuite). 0 = pas de limite autre que la fenêtre du modèle.
     MAX_REQUEST_TOKENS: int = 0

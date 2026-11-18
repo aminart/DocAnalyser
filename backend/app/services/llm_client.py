@@ -116,9 +116,13 @@ def _error(status: int, body: str) -> LLMError:
 async def chat(
     *, base_url: str, api_key: str, model: str, messages: list[dict[str, str]], temperature: float = 0,
     max_tokens: int = 0, json_mode: bool = False, ca_bundle: str = "",
-    on_delta: Callable[[str], None] | None = None,
+    on_delta: Callable[[str], None] | None = None, timeout: float | None = None,
 ) -> tuple[str, str | None]:
-    """Envoie une conversation ; renvoie (texte, finish_reason). Avec on_delta, réponse reçue en streaming."""
+    """Envoie une conversation ; renvoie (texte, finish_reason). Avec on_delta, réponse reçue en streaming.
+
+    timeout : attente maximale sans rien recevoir (secondes) ; par défaut 600 s pour une réponse complète et
+    STREAM_READ_TIMEOUT entre deux morceaux en streaming.
+    """
     url = base_url.rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json"}
     if api_key:
@@ -129,20 +133,21 @@ async def chat(
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
     try:
-        return await _send(_client(ca_bundle), url, headers, payload, on_delta)
+        return await _send(_client(ca_bundle), url, headers, payload, on_delta, timeout)
     except BadRequestError as exc:
         # Certains serveurs (anciennes versions de vLLM…) refusent response_format : la consigne impose déjà le JSON.
         if json_mode and any(k in str(exc).lower() for k in ("response_format", "json_object", "json mode")):
             payload.pop("response_format", None)
-            return await _send(_client(ca_bundle), url, headers, payload, on_delta)
+            return await _send(_client(ca_bundle), url, headers, payload, on_delta, timeout)
         raise
 
 
 async def _send(client: httpx.AsyncClient, url: str, headers: dict[str, str], payload: dict[str, Any],
-                on_delta: Callable[[str], None] | None) -> tuple[str, str | None]:
+                on_delta: Callable[[str], None] | None, timeout: float | None = None) -> tuple[str, str | None]:
     try:
         if on_delta is None:
-            resp = await client.post(url, headers=headers, json=payload)
+            kwargs = {"timeout": httpx.Timeout(timeout, connect=20.0)} if timeout else {}
+            resp = await client.post(url, headers=headers, json=payload, **kwargs)
             if resp.status_code >= 400:
                 raise _error(resp.status_code, resp.text)
             data = resp.json()
@@ -152,7 +157,7 @@ async def _send(client: httpx.AsyncClient, url: str, headers: dict[str, str], pa
         payload = {**payload, "stream": True}
         text, finish = [], None
         # En streaming, le délai porte sur chaque morceau : un modèle bloqué est détecté en 3 minutes.
-        stream_timeout = httpx.Timeout(STREAM_READ_TIMEOUT, connect=20.0)
+        stream_timeout = httpx.Timeout(timeout or STREAM_READ_TIMEOUT, connect=20.0)
         async with client.stream("POST", url, headers=headers, json=payload, timeout=stream_timeout) as resp:
             if resp.status_code >= 400:
                 raise _error(resp.status_code, (await resp.aread()).decode("utf-8", "replace"))
@@ -181,3 +186,26 @@ async def _send(client: httpx.AsyncClient, url: str, headers: dict[str, str], pa
         raise ServiceUnavailableError(f"connexion impossible à {url} : {exc}") from exc
     except httpx.HTTPError as exc:
         raise ServiceUnavailableError(f"erreur réseau : {exc}") from exc
+
+
+async def ollama_context_length(base_url: str, model: str, ca_bundle: str = "") -> int | None:
+    """Fenêtre réellement ouverte par Ollama pour un modèle chargé (GET /api/ps), ou None si inconnue.
+
+    Par son adresse compatible OpenAI, Ollama ne prend pas la taille de contexte demandée : il garde la sienne
+    (souvent quelques milliers de tokens) et coupe sans prévenir ce qui dépasse.
+    """
+    root = base_url.rstrip("/")
+    root = root[: -len("/v1")] if root.endswith("/v1") else root
+    wanted = model if ":" in model else f"{model}:latest"
+    try:
+        resp = await _client(ca_bundle).get(f"{root}/api/ps", timeout=httpx.Timeout(5.0))
+        entries = resp.json().get("models") or [] if resp.status_code == 200 else []
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return None
+    for entry in entries:
+        if isinstance(entry, dict) and wanted in (entry.get("name"), entry.get("model")):
+            try:
+                return int(entry.get("context_length") or 0) or None
+            except (TypeError, ValueError):
+                return None
+    return None

@@ -11,7 +11,11 @@ En mode Flux, les éléments extraits (dédoublonnés si besoin) remplacent le c
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,7 +23,10 @@ from app.core.config import settings
 from app.services import analysis_service as svc
 from app.services.parser_service import AnchoredTextBlock
 
+logger = logging.getLogger("analyse")
+
 EXTRACT_SHARE = 0.5
+LOT_CACHE_DAYS = 7  # lots extraits gardés sur le disque, pour reprendre une analyse interrompue
 ASSIGN_MAX_ITEMS = 100  # éléments par appel de classement : au-delà, les petits modèles en oublient
 WRITE_MAX_ITEMS = 40  # éléments par appel de rédaction d'un thème
 MAX_OTHER_SHARE = 0.15  # au-delà, de nouveaux thèmes sont dégagés à partir des éléments non classés
@@ -42,7 +49,8 @@ KIND_HINTS = {
 
 def window_tokens(spec: svc.ModelSpec, cap: int = 0) -> int:
     """Taille de requête utilisable : fenêtre du modèle, bornée par MAX_REQUEST_TOKENS et par un plafond éventuel."""
-    limits = [spec.context_tokens] + [x for x in (settings.MAX_REQUEST_TOKENS, cap) if x]
+    local = settings.LOCAL_MAX_REQUEST_TOKENS if spec.provider.local else 0
+    limits = [spec.context_tokens] + [x for x in (settings.MAX_REQUEST_TOKENS, local, cap) if x]
     return min(limits)
 
 
@@ -53,8 +61,8 @@ def budget_chars(spec: svc.ModelSpec, cap: int = 0) -> int:
     return int(tokens * svc.CHARS_PER_TOKEN)
 
 
-def needs_batches(spec: svc.ModelSpec, corpus: str) -> bool:
-    return len(corpus) > budget_chars(spec)
+def needs_batches(spec: svc.ModelSpec, corpus: str, cap: int = 0) -> bool:
+    return len(corpus) > budget_chars(spec, cap)
 
 
 @dataclass
@@ -88,14 +96,66 @@ def _group(texts: list[str], max_chars: int, max_items: int = 0) -> list[list[in
     return groups
 
 
-async def _gather_limited(coros):
-    sem = asyncio.Semaphore(settings.MAX_CONCURRENT_LLM_REQUESTS)
+async def _gather_limited(coros, limit: int):
+    """Lance les appels, au plus limit à la fois ; au premier échec, les autres sont arrêtés.
+
+    Sans cela, les requêtes restantes continueraient d'occuper le modèle après l'échec de l'analyse.
+    """
+    sem = asyncio.Semaphore(limit)
 
     async def run(c):
-        async with sem:
-            return await c
+        try:
+            async with sem:
+                return await c
+        finally:
+            c.close()  # sans effet si l'appel est terminé ; évite un avertissement s'il n'a jamais démarré
 
-    return await asyncio.gather(*(run(c) for c in coros))
+    tasks = [asyncio.ensure_future(run(c)) for c in coros]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        for t in tasks:
+            t.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+
+# ---------------------------------------------------------------------------
+# Lots déjà extraits : une analyse relancée reprend là où la précédente s'est arrêtée
+# ---------------------------------------------------------------------------
+
+def _lot_dir():
+    return settings.STORAGE_DIR / "lots"
+
+
+def _lot_key(spec: svc.ModelSpec, prompt: str, user: str) -> str:
+    return hashlib.sha256("\0".join((spec.provider.api_base, spec.name, prompt, user)).encode("utf-8")).hexdigest()
+
+
+def _lot_load(key: str) -> dict[str, Any] | None:
+    try:
+        data = json.loads((_lot_dir() / f"{key}.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _lot_save(key: str, data: dict[str, Any]) -> None:
+    try:
+        _lot_dir().mkdir(parents=True, exist_ok=True)
+        (_lot_dir() / f"{key}.json").write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except OSError as exc:  # disque plein ou protégé : l'analyse continue, sans reprise possible
+        logger.warning("Lot non enregistré : %s", exc)
+
+
+def _lot_purge() -> None:
+    limit = time.time() - LOT_CACHE_DAYS * 86_400
+    try:
+        for f in _lot_dir().glob("*.json"):
+            if f.stat().st_mtime < limit:
+                f.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -129,34 +189,59 @@ async def extract(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: s
     groups = _group(segments, int(budget_chars(chain[0], analysis.context_cap) * EXTRACT_SHARE))
     doc_names = [d.name for d in analysis.documents]
     prompt = _extract_prompt(analysis.mode, analysis.language)
-    done = 0
+    done = resumed = 0
+    _lot_purge()
 
     # Message de repli (envoi d'un bloc refusé) conservé en tête de la progression.
     previous = analysis.step_notes.get(1, "")
     prefix = f"{previous} · " if previous.startswith("Le modèle n'a pas pu") else ""
 
-    async def extract_part(idx: list[int]) -> dict[str, Any]:
+    async def extract_part(idx: list[int], timeouts: int = 0) -> dict[str, Any]:
+        user = "Extrait du corpus :\n\n" + "\n".join(segments[i] for i in idx)
+        key = _lot_key(chain[0], prompt, user)
+        cached = _lot_load(key)
+        if cached is not None:
+            return {**cached, "_resumed": True}
         try:
-            return await svc._call_json(analysis, chain, prompt, "Extrait du corpus :\n\n" + "\n".join(segments[i] for i in idx))
+            result = await svc._call_json(analysis, chain, prompt, user)
+            _lot_save(key, result)
+            return result
+        except svc.ProviderUnavailable as exc:
+            # Délai dépassé sur un gros lot : on le coupe une fois en deux, chaque moitié répond plus vite.
+            if not exc.timed_out or timeouts or len(idx) < 2:
+                raise
+            half = len(idx) // 2
+            a, b = await extract_part(idx[:half], 1), await extract_part(idx[half:], 1)
+            return {"items": (a.get("items") or []) + (b.get("items") or []),
+                    "topics": (a.get("topics") or []) + (b.get("topics") or [])}
         except svc.InvalidModelOutput:
             if len(idx) < 2:
                 raise
             # Réponse illisible même après un nouvel essai : on redécoupe le lot (réponse plus courte, plus fiable).
             half = len(idx) // 2
-            a, b = await extract_part(idx[:half]), await extract_part(idx[half:])
+            a, b = await extract_part(idx[:half], timeouts), await extract_part(idx[half:], timeouts)
             return {"items": (a.get("items") or []) + (b.get("items") or []),
                     "topics": (a.get("topics") or []) + (b.get("topics") or [])}
 
-    async def one(idx: list[int]) -> dict[str, Any]:
-        nonlocal done
-        result = await extract_part(idx)
+    async def one(k: int, idx: list[int]) -> dict[str, Any]:
+        nonlocal done, resumed
+        try:
+            result = await extract_part(idx)
+        except svc.AnalysisError as exc:
+            # L'utilisateur doit savoir où l'analyse s'est arrêtée, et que le travail fait n'est pas perdu.
+            kept = (f"les {done} lots déjà extraits sont gardés : relancez l'analyse avec les mêmes documents et le "
+                    "même modèle pour reprendre là où elle s'est arrêtée." if done else
+                    "relancez l'analyse une fois le problème réglé.")
+            raise type(exc)(f"{exc} (Arrêt au lot {k}/{len(groups)} de l'extraction ; {kept})") from exc
         done += 1
+        resumed += bool(result.pop("_resumed", False))
         analysis.progress = 15 + 15 * done / len(groups)
-        analysis.step_notes[1] = f"{prefix}{len(groups)} lots · lot {done}/{len(groups)} extrait"
+        again = f" ({resumed} repris de l'analyse précédente)" if resumed else ""
+        analysis.step_notes[1] = f"{prefix}{len(groups)} lots · lot {done}/{len(groups)} extrait{again}"
         return result
 
     analysis.step_notes[1] = f"{prefix}{len(groups)} lots pour tenir dans la fenêtre du modèle"
-    results = await _gather_limited([one(g) for g in groups])
+    results = await _gather_limited([one(k, g) for k, g in enumerate(groups, start=1)], svc.concurrency(chain[0]))
 
     items: list[Item] = []
     topics: list[str] = []
@@ -235,7 +320,7 @@ async def _assign(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: lis
     pending = items
     for _ in range(2):  # second passage : éléments que le modèle n'a pas renvoyés
         groups = _group([i.line() for i in pending], budget, ASSIGN_MAX_ITEMS)
-        for mapping in await _gather_limited([one([pending[k] for k in g]) for g in groups]):
+        for mapping in await _gather_limited([one([pending[k] for k in g]) for g in groups], svc.concurrency(chain[0])):
             for item_id, num in mapping.items():
                 try:
                     result.setdefault(item_id, int(num))
@@ -360,7 +445,7 @@ def _theme_prompt(analysis: svc.Analysis) -> str:
 async def write_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     budget = int(budget_chars(chain[0], analysis.context_cap) * PASSAGE_SHARE)
     prompt = _theme_prompt(analysis)
-    sem = asyncio.Semaphore(settings.MAX_CONCURRENT_LLM_REQUESTS)  # par requête, toutes parties confondues
+    sem = asyncio.Semaphore(svc.concurrency(chain[0]))  # par requête, toutes parties confondues
     done = 0
 
     async def write_part(theme: dict[str, Any], part: list[Item], label: str) -> list[dict[str, Any]]:
@@ -569,7 +654,7 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
         analysis.step_notes[1] = f"{n_batches} lots extraits · fusion des doublons (passe {rounds})"
         results = await _gather_limited([
             svc._call_json(analysis, chain, MERGE_PROMPT, "\n".join(lines[i] for i in g)) for g in groups
-        ])
+        ], svc.concurrency(chain[0]))
         merged: list[Item] = []
         for raw_out in results:
             for raw in raw_out.get("items") or []:
