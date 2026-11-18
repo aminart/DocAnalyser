@@ -28,6 +28,10 @@ export interface UploadedDocument {
   /** Le document se découpe en pages (PDF) ou slides (PowerPoint) qu'on peut choisir d'analyser. */
   sections?: 'pages' | 'slides' | null;
   last_section?: number;
+  /** Images à lire par un modèle qui voit les images (pages scannées, schémas, photos). */
+  images?: number;
+  /** Aucun texte : le document n'est analysé qu'avec un modèle de vision. */
+  images_only?: boolean;
 }
 
 export interface AnalysisStep {
@@ -197,6 +201,8 @@ export interface Analysis {
   markdown: string;
   /** Texte exporté modifié à la main après l'analyse. */
   markdown_edited?: boolean;
+  /** Modèle qui a lu les images des documents ; vide = texte seul. */
+  vision_model_id?: string;
   /** Durée restante estimée (secondes), mesurée sur les premiers lots ; null si inconnue. */
   eta_seconds?: number | null;
   error: string | null;

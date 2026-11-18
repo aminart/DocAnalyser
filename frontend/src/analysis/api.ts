@@ -40,6 +40,8 @@ export const analysisApi = {
     cite: boolean;
     /** Pages (ou slides) à analyser par document, ex. { d1: '12-45, 80' } ; absent = document entier. */
     sections?: Record<string, string>;
+    /** Modèle qui lit les images des documents ; absent = texte seul. */
+    vision_model_id?: string;
   }): Promise<Analysis> {
     return request<Analysis>('/analyses', {
       method: 'POST',

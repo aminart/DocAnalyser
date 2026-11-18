@@ -31,7 +31,7 @@ from typing import Any, Callable, Literal
 
 
 from app.core.config import settings
-from app.services import llm_client, store
+from app.services import image_reader, llm_client, store
 from app.services.errors import AnalysisError, InvalidModelOutput, ProviderUnavailable
 from app.services.models import (  # noqa: F401 : réexportés, utilisés via analysis_service ailleurs
     APP_ID, ENV_PROVIDERS, STUDIODOCK, ModelSpec, ProviderConf, all_models, connexions_studiodock, fallback_chain, get_model,
@@ -241,6 +241,8 @@ class StoredDocument:
     pages: int  # équivalent en pages, pour l'estimation de durée
     blocks: list[AnchoredTextBlock]
     warnings: list[str] = field(default_factory=list)
+    # Images mises de côté pour un modèle de vision : {"location", "file", "scanned", "done"} (image_reader)
+    images: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def chars(self) -> int:
@@ -274,6 +276,8 @@ class StoredDocument:
             "warnings": self.warnings,
             "sections": numbered[0] if numbered else None,  # pages ou slides qu'on peut choisir d'analyser
             "last_section": numbered[1] if numbered else 0,
+            "images": sum(1 for i in self.images if not i.get("done")),  # images à lire par un modèle de vision
+            "images_only": not self.blocks,
         }
 
 
@@ -324,6 +328,7 @@ def select_sections(doc: StoredDocument, text: str) -> StoredDocument:
         f"{len(blocks)} {word}{plural} sur {doc.units} ({unit} {label})",
         len(blocks) if kind == "pages" else max(1, round(sum(len(b.content) for b in blocks) / 2500)),
         blocks, doc.warnings,
+        [dict(i) for i in doc.images if (n := image_reader.number(i["location"])) is not None and keep(n)],
     )
     DOCUMENTS[selected.id] = selected
     store.save_document(selected)
@@ -359,13 +364,17 @@ def store_document(content: bytes, file_name: str) -> StoredDocument:
     except Exception as exc:  # fichier corrompu, format non lisible
         raise AnalysisError(f"Impossible de lire {safe_name} : {exc}") from exc
     blocks = [b for b in parsed.blocks if b.content.strip()]
-    if not blocks:
+    images = image_reader.save(image_reader.extract(path, safe_name, parsed.empty_pages))
+    if not blocks and not images:
         detail = f" ({parsed.warnings[0]})" if parsed.warnings else ""
         raise AnalysisError(f"Aucun texte lisible dans {safe_name}{detail}. Les documents scannés doivent être océrisés.")
+    if not blocks:
+        parsed.warnings = [f"Aucun texte dans {safe_name} : il ne sera analysé qu'avec un modèle qui voit les images "
+                           "(« Lire les images avec », au lancement)."]
     ext = Path(safe_name).suffix.lower().lstrip(".") or "txt"
     chars = sum(len(b.plain_text()) for b in blocks)
     pages = len(blocks) if ext == "pdf" else max(1, round(chars / 2500))
-    doc = StoredDocument(doc_id, safe_name, ext, len(content), parsed.units, pages, blocks, parsed.warnings)
+    doc = StoredDocument(doc_id, safe_name, ext, len(content), parsed.units, pages, blocks, parsed.warnings, images)
     DOCUMENTS[doc_id] = doc
     store.save_document(doc)
     return doc
@@ -409,6 +418,7 @@ class Analysis:
     context_cap: int = 0  # plafond de taille de requête après un échec d'envoi en un seul bloc
     questions: list[dict[str, Any]] = field(default_factory=list)  # questions posées sur les documents (qa_service)
     markdown_edited: bool = False  # texte exporté modifié à la main après l'analyse
+    vision_model_id: str = ""  # modèle qui lit les images des documents ; vide = texte seul
     eta_at: float = 0.0  # fin estimée (horodatage time.time()), mesurée sur les premiers lots ; 0 = inconnue
 
     def step_details(self) -> list[str]:
@@ -466,6 +476,7 @@ class Analysis:
             "error": self.error,
             "questions": self.questions,
             "markdown_edited": self.markdown_edited,
+            "vision_model_id": self.vision_model_id,
             "eta_seconds": max(0, round(self.eta_at - time.time())) if self.status == "running" and self.eta_at else None,
         }
 
@@ -489,7 +500,7 @@ ANALYSES: dict[str, Analysis] = {}
 
 def create_analysis(
     document_ids: list[str], mode: str, level: str, model_id: str, language: str, cite: bool,
-    sections: dict[str, str] | None = None,
+    sections: dict[str, str] | None = None, vision_model_id: str = "",
 ) -> Analysis:
     """sections : pages (ou slides) à analyser par document, par exemple {id: "12-45, 80"} ; absent = tout."""
     if mode not in MODE_LABELS:
@@ -508,10 +519,22 @@ def create_analysis(
         docs.append(select_sections(doc, wanted) if wanted else doc)
     if not docs:
         raise AnalysisError("Importez au moins un document.")
+    if vision_model_id:
+        vision = get_model(vision_model_id)
+        if not is_configured(vision):
+            raise AnalysisError(f"Le modèle {vision.name}, choisi pour lire les images, n'est pas configuré.")
+    else:
+        only_images = [d.name for d in docs if not d.blocks]
+        if only_images:
+            raise AnalysisError(
+                f"{', '.join(only_images)} ne contien{'nent' if len(only_images) > 1 else 't'} que des images : "
+                "choisissez un modèle qui voit les images (« Lire les images avec »), ou retirez ce document."
+            )
 
     analysis = Analysis(
         id=str(uuid.uuid4()), mode=mode, level=level, model_id=model_id,
         language=language, cite=cite, documents=docs, created_at=datetime.now(timezone.utc),
+        vision_model_id=vision_model_id,
     )
     ANALYSES[analysis.id] = analysis
     store.save_analysis(analysis)
@@ -526,7 +549,8 @@ def retry_analysis(old: Analysis) -> Analysis:
     """
     if old.status not in ("failed", "cancelled"):
         raise AnalysisError("Seule une analyse échouée ou annulée peut être reprise.")
-    new = create_analysis([d.id for d in old.documents], old.mode, old.level, old.model_id, old.language, old.cite)
+    new = create_analysis([d.id for d in old.documents], old.mode, old.level, old.model_id, old.language, old.cite,
+                          vision_model_id=old.vision_model_id)
     delete_analysis(old)  # ses documents servent à la nouvelle : ils sont gardés
     return new
 
@@ -633,8 +657,16 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
 
     chain = fallback_chain(spec)
     try:
-        # 1. Lecture
+        # 1. Lecture (et images lues par le modèle de vision, s'il y en a un)
         _enter(analysis, 0)
+        if analysis.vision_model_id:
+            from app.services import vision_service
+
+            await vision_service.read_images(analysis)
+        if not any(d.blocks for d in analysis.documents):
+            detail = analysis.step_notes.get(0, "")
+            raise AnalysisError("Aucun texte à analyser : le modèle de vision n'a rien pu lire dans les images."
+                                + (f" ({detail})" if detail else ""))
         segments = [b.to_prompt_segment() for d in analysis.documents for b in d.blocks]
         corpus = "\n".join(segments)
         checker = QuoteChecker("\n".join(d.plain_text() for d in analysis.documents))

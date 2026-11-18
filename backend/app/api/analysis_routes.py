@@ -26,6 +26,8 @@ class AnalysisCreate(BaseModel):
     cite: bool = True
     # Pages (ou slides) à analyser, par document : {"id du document": "12-45, 80"} ; absent = document entier
     sections: dict[str, str] = Field(default_factory=dict)
+    # Modèle qui lit les images des documents (pages scannées, schémas, photos) ; vide = texte seul
+    vision_model_id: str = ""
 
 
 def _get(analysis_id: str) -> svc.Analysis:
@@ -83,7 +85,7 @@ async def create_analysis(payload: AnalysisCreate) -> dict:
     try:
         analysis = svc.create_analysis(
             payload.document_ids, payload.mode, payload.level, payload.model_id, payload.language, payload.cite,
-            payload.sections,
+            payload.sections, payload.vision_model_id,
         )
     except svc.AnalysisError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -5,6 +5,23 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.6.0] — 2026-11-18
+
+### Ajouté
+
+- Lecture des images par un modèle qui voit les images (facultatif) : pages scannées des PDF, images insérées
+  dans les PDF, Word et PowerPoint, et fichiers image importés (PNG, JPG, WEBP). Au lancement, « Lire les images
+  avec » propose les modèles configurés ; chaque image est transcrite (texte, tableau) ou décrite (schéma,
+  graphique), puis analysée avec le texte à son repère d'origine (« Page 12 », « Slide 4 »). Les images
+  décoratives (logos, icônes) sont ignorées, une image déjà lue n'est pas redemandée.
+- Sans modèle de vision, rien ne change : l'analyse porte sur le texte seul. Un modèle qui refuse les images
+  n'arrête pas l'analyse (texte seul, avec un message).
+
+### Modifié
+
+- Les fichiers image sont acceptés à l'import ; un document sans texte demande un modèle de vision au lancement.
+- Nouvelle dépendance : pypdfium2, pour rendre en image les pages scannées des PDF.
+
 ## [2.5.0] — 2026-11-18
 
 ### Ajouté
