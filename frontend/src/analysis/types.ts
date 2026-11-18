@@ -195,6 +195,10 @@ export interface Analysis {
   created_at: string;
   result: ThemesResult | JourneyResult | null;
   markdown: string;
+  /** Texte exporté modifié à la main après l'analyse. */
+  markdown_edited?: boolean;
+  /** Durée restante estimée (secondes), mesurée sur les premiers lots ; null si inconnue. */
+  eta_seconds?: number | null;
   error: string | null;
   questions?: Question[];
 }

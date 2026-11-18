@@ -102,6 +102,30 @@ async def cancel_analysis(analysis_id: str) -> dict:
     return analysis.public()
 
 
+@router.post("/analyses/{analysis_id}/retry", status_code=202)
+async def retry_analysis(analysis_id: str) -> dict:
+    """Reprend une analyse échouée ou annulée ; les lots déjà extraits ne sont pas redemandés au modèle."""
+    try:
+        return svc.retry_analysis(_get(analysis_id)).public()
+    except svc.AnalysisError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class MarkdownUpdate(BaseModel):
+    markdown: str | None = Field(default=None, max_length=2_000_000)  # None : retour au texte d'origine
+
+
+@router.put("/analyses/{analysis_id}/markdown")
+async def update_markdown(analysis_id: str, payload: MarkdownUpdate) -> dict:
+    """Texte de la synthèse modifié avant export (Markdown, Word, PDF)."""
+    analysis = _get(analysis_id)
+    try:
+        svc.set_markdown(analysis, payload.markdown)
+    except svc.AnalysisError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return analysis.public()
+
+
 @router.delete("/analyses/{analysis_id}", status_code=204)
 async def delete_analysis(analysis_id: str) -> Response:
     """Supprime une analyse de l'historique, avec ses documents s'ils ne servent pas ailleurs."""

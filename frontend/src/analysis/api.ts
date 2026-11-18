@@ -52,6 +52,17 @@ export const analysisApi = {
 
   cancelAnalysis: (id: string) => request<Analysis>(`/analyses/${id}/cancel`, { method: 'POST' }),
 
+  /** Reprend une analyse échouée ou annulée (nouvelle analyse, lots déjà extraits repris). */
+  retryAnalysis: (id: string) => request<Analysis>(`/analyses/${id}/retry`, { method: 'POST' }),
+
+  /** Texte exporté modifié ; null revient au texte produit par l'analyse. */
+  updateMarkdown: (id: string, markdown: string | null) =>
+    request<Analysis>(`/analyses/${id}/markdown`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown }),
+    }),
+
   listAnalyses: () => request<AnalysisSummary[]>('/analyses'),
 
   async deleteAnalysis(id: string): Promise<void> {

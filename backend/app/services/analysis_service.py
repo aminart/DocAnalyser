@@ -22,6 +22,7 @@ import asyncio
 import logging
 import json
 import re
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -407,6 +408,8 @@ class Analysis:
     step_notes: dict[int, str] = field(default_factory=dict)  # précisions d'étape (« lot 3/6 »)
     context_cap: int = 0  # plafond de taille de requête après un échec d'envoi en un seul bloc
     questions: list[dict[str, Any]] = field(default_factory=list)  # questions posées sur les documents (qa_service)
+    markdown_edited: bool = False  # texte exporté modifié à la main après l'analyse
+    eta_at: float = 0.0  # fin estimée (horodatage time.time()), mesurée sur les premiers lots ; 0 = inconnue
 
     def step_details(self) -> list[str]:
         total_pages = sum(d.pages for d in self.documents)
@@ -462,6 +465,8 @@ class Analysis:
             "markdown": self.markdown,
             "error": self.error,
             "questions": self.questions,
+            "markdown_edited": self.markdown_edited,
+            "eta_seconds": max(0, round(self.eta_at - time.time())) if self.status == "running" and self.eta_at else None,
         }
 
     def summary(self) -> dict[str, Any]:
@@ -512,6 +517,29 @@ def create_analysis(
     store.save_analysis(analysis)
     analysis.task = asyncio.create_task(_run(analysis, spec))
     return analysis
+
+
+def retry_analysis(old: Analysis) -> Analysis:
+    """Relance une analyse échouée ou annulée, avec les mêmes documents et réglages, à la place de l'ancienne.
+
+    Les lots déjà extraits (gardés sur le disque) sont repris : l'analyse repart là où elle s'était arrêtée.
+    """
+    if old.status not in ("failed", "cancelled"):
+        raise AnalysisError("Seule une analyse échouée ou annulée peut être reprise.")
+    new = create_analysis([d.id for d in old.documents], old.mode, old.level, old.model_id, old.language, old.cite)
+    delete_analysis(old)  # ses documents servent à la nouvelle : ils sont gardés
+    return new
+
+
+def set_markdown(analysis: Analysis, markdown: str | None) -> None:
+    """Texte exporté (Markdown, Word, PDF) modifié à la main ; None revient au texte produit par l'analyse."""
+    if analysis.status != "done":
+        raise AnalysisError("La synthèse n'est pas encore prête.")
+    if markdown is None or not markdown.strip():
+        analysis.markdown, analysis.markdown_edited = to_markdown(analysis), False
+    else:
+        analysis.markdown, analysis.markdown_edited = markdown, True
+    store.save_analysis(analysis)
 
 
 def cancel_analysis(analysis: Analysis) -> None:
@@ -657,6 +685,7 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
     except Exception as exc:  # erreur inattendue
         analysis.status, analysis.error = "failed", f"Erreur inattendue : {str(exc)[:300]}"
     finally:
+        analysis.eta_at = 0.0
         if analysis.id in ANALYSES:  # pas d'enregistrement si l'analyse vient d'être supprimée
             store.save_analysis(analysis)
 

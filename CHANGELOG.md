@@ -5,6 +5,16 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.5.0] — 2026-11-18
+
+### Ajouté
+
+- Bouton « Reprendre l'analyse » sur une analyse échouée ou annulée : elle repart avec les mêmes documents et
+  réglages, sans refaire les lots déjà extraits, et remplace l'ancienne dans l'historique.
+- Temps restant estimé pendant une analyse par lots, mesuré sur les premiers lots puis sur la rédaction des thèmes.
+- Onglet « Texte exporté » : le texte de la synthèse se corrige avant export ; les exports Markdown, Word et PDF
+  reprennent le texte modifié, qui est gardé dans l'historique. « Revenir au texte d'origine » annule tout.
+
 ## [2.4.1] — 2026-11-18
 
 ### Modifié

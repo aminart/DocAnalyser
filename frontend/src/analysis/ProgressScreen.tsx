@@ -9,12 +9,26 @@ const Spinner: React.FC<{ size: number; stroke: number }> = ({ size, stroke }) =
   </svg>
 );
 
+/** « ≈ 2 h 40 », « ≈ 12 min », « moins d'une minute » ; « presque terminé » une fois l'estimation dépassée. */
+export const formatRemaining = (seconds: number): string => {
+  if (seconds <= 0) return 'presque terminé';
+  if (seconds < 60) return 'moins d’une minute';
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `≈ ${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `≈ ${h} h${m ? ` ${String(m).padStart(2, '0')}` : ''}`;
+};
+
 export const ProgressScreen: React.FC<{
   analysis: Analysis;
   onCancel: () => void;
   onShowResult: () => void;
   onBack: () => void;
-}> = ({ analysis, onCancel, onShowResult, onBack }) => {
+  /** Reprend une analyse échouée ou annulée : les lots déjà extraits ne sont pas refaits. */
+  onRetry?: () => void;
+  retrying?: boolean;
+}> = ({ analysis, onCancel, onShowResult, onBack, onRetry, retrying }) => {
   const running = analysis.status === 'running';
   const done = analysis.status === 'done';
   const pct = done ? 100 : analysis.progress;
@@ -44,7 +58,7 @@ export const ProgressScreen: React.FC<{
     : analysis.status === 'failed'
       ? analysis.error
       : analysis.status === 'cancelled'
-        ? 'Vous pouvez relancer une analyse depuis la configuration.'
+        ? 'Reprenez-la quand vous voulez : les lots déjà extraits ne seront pas refaits.'
         : active
           ? `${active.label} — vous pouvez quitter cette page, l’analyse continue en arrière-plan.`
           : '';
@@ -75,7 +89,12 @@ export const ProgressScreen: React.FC<{
         <div className="flex flex-col gap-2">
           <div className="flex justify-between text-sm">
             <span className="font-semibold">Progression</span>
-            <span className="tabular-nums text-ink-muted">{pct} %</span>
+            <span className="tabular-nums text-ink-muted">
+              {running && analysis.eta_seconds != null && (
+                <span className="mr-3">Temps restant estimé : {formatRemaining(analysis.eta_seconds)}</span>
+              )}
+              {pct} %
+            </span>
           </div>
           <div
             role="progressbar"
@@ -168,11 +187,25 @@ export const ProgressScreen: React.FC<{
             <Icons.arrow size={18} strokeWidth={2.2} />
           </button>
         )}
+        {!running && !done && onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={retrying}
+            className="inline-flex min-h-11 items-center rounded-[10px] border-none bg-primary px-5 font-semibold text-white hover:bg-primary-hover disabled:opacity-60"
+          >
+            {retrying ? 'Reprise…' : 'Reprendre l’analyse'}
+          </button>
+        )}
         {!running && !done && (
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex min-h-11 items-center rounded-[10px] border-none bg-primary px-5 font-semibold text-white hover:bg-primary-hover hover:opacity-90"
+            className={`inline-flex min-h-11 items-center rounded-[10px] px-5 font-semibold ${
+              onRetry
+                ? 'border border-line-strong bg-surface text-ink hover:bg-bg'
+                : 'border-none bg-primary text-white hover:bg-primary-hover hover:opacity-90'
+            }`}
           >
             Retour à la configuration
           </button>

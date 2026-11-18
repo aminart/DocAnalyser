@@ -68,7 +68,8 @@ def delete_document(doc_id: str) -> None:
 # -- Analyses -----------------------------------------------------------------
 
 _ANALYSIS_FIELDS = ("id", "mode", "level", "model_id", "language", "cite", "status", "progress", "step", "preview",
-                    "title", "result", "markdown", "error", "active_model_id", "batched", "questions")
+                    "title", "result", "markdown", "error", "active_model_id", "batched", "questions",
+                    "markdown_edited")
 
 
 def save_analysis(a: "Analysis") -> None:
