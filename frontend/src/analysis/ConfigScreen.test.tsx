@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { analysisApi } from './api';
-import { ConfigScreen, countSelection } from './ConfigScreen';
+import { ConfigScreen, checkSelection, countSelection } from './ConfigScreen';
 import { Analysis, ModelInfo } from './types';
 
 vi.mock('./api', () => ({
@@ -110,6 +110,24 @@ describe('ConfigScreen', () => {
     expect(countSelection('12 à 14 ; 290-', 299)).toBe(13);
     expect(countSelection('abc', 299)).toBeNull();
     expect(countSelection('', 299)).toBeNull();
+  });
+
+  it('vérifie la sélection comme le serveur, avec un message clair', () => {
+    expect(checkSelection('12-45, 80', 299)).toEqual({ count: 35 });
+    expect(checkSelection('', 299)).toBeNull();
+    expect(checkSelection('abc', 299)).toEqual({ error: '« abc » n’est pas compris : écrivez par exemple 12-45, 80.' });
+    expect(checkSelection('400', 299, 'slide')).toEqual({ error: 'La slide 400 n’existe pas : le document va de 1 à 299.' });
+  });
+
+  it('annonce une durée plus longue avec un modèle sur ce poste', async () => {
+    api.listModels.mockResolvedValue([{ ...model, local: true }]);
+    api.uploadDocument.mockResolvedValue({
+      id: 'p1', name: 'rapport.pdf', ext: 'pdf', size_bytes: 1000, units: '300 pages', pages: 300, warnings: [],
+    });
+    render(<ConfigScreen onLaunched={vi.fn()} />);
+    const input = document.querySelector('input[type=file]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'rapport.pdf')] } });
+    expect(await screen.findByText(/≈ 58 min avec un modèle sur ce poste/)).toBeTruthy();
   });
 
   it('propose de lire les images avec un modèle qui voit, et l’exige pour une image seule', async () => {

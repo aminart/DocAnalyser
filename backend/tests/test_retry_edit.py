@@ -87,3 +87,43 @@ def test_duree_restante_mesuree_sur_les_lots(monkeypatch):
     asyncio.run(go())
     assert seen[0] is None  # inconnue avant deux lots mesurés
     assert a.eta_at > 0  # estimée ensuite
+
+
+def _failed_run(monkeypatch, exc):
+    """Lance _run avec un modèle qui échoue sur l'erreur donnée ; renvoie l'analyse échouée."""
+    _gemini(monkeypatch)
+    monkeypatch.setattr(svc, "RETRY_WAITS", (0, 0, 0))
+
+    async def fake_complete(spec, system_prompt, user, want_json=True, on_text=None):
+        raise exc
+
+    monkeypatch.setattr(svc, "_complete", fake_complete)
+    doc = _doc()
+    a = svc.Analysis(id=f"err-{time.time_ns()}", mode="global", level="synth", model_id="GEMINI:gemini-3.8-flash",
+                     language="fr", cite=False, documents=[doc], created_at=datetime.now())
+    svc.ANALYSES[a.id] = a
+    asyncio.run(svc._run(a, svc.get_model(a.model_id)))
+    assert a.status == "failed"
+    return a
+
+
+def test_cle_refusee_renvoie_vers_les_reglages(monkeypatch):
+    from app.services import llm_client
+
+    a = _failed_run(monkeypatch, llm_client.AuthenticationError("invalid key", 401))
+    assert a.public()["error_settings"] is True
+    assert "Réglages" in a.error and "backend/.env" not in a.error
+
+
+def test_serveur_injoignable_renvoie_vers_les_reglages(monkeypatch):
+    from app.services import llm_client
+
+    a = _failed_run(monkeypatch, llm_client.ConnectionFailedError("connexion impossible à http://localhost:11434"))
+    assert a.error_settings is True
+
+
+def test_autre_echec_ne_renvoie_pas_vers_les_reglages(monkeypatch):
+    from app.services import llm_client
+
+    a = _failed_run(monkeypatch, llm_client.BadRequestError("bad json", 400))
+    assert a.error_settings is False

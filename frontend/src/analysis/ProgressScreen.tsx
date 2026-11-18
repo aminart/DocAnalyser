@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { askNotifyPermission, notifyPermission } from './notify';
 import { Analysis } from './types';
 import { Icons, docCountLabel, themeColor } from './ui';
 
@@ -29,6 +30,8 @@ export const ProgressScreen: React.FC<{
   onRetry?: () => void;
   retrying?: boolean;
 }> = ({ analysis, onCancel, onShowResult, onBack, onRetry, retrying }) => {
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [permission, setPermission] = useState(notifyPermission);
   const running = analysis.status === 'running';
   const done = analysis.status === 'done';
   const pct = done ? 100 : analysis.progress;
@@ -168,14 +171,37 @@ export const ProgressScreen: React.FC<{
       </div>
 
       <div className="flex flex-wrap justify-center gap-3">
-        {running && (
+        {running && !confirmCancel && (
           <button
             type="button"
-            onClick={onCancel}
+            onClick={() => setConfirmCancel(true)}
             className="inline-flex min-h-11 items-center rounded-[10px] border border-line-strong bg-surface px-5 font-semibold text-ink hover:bg-bg"
           >
             Annuler l'analyse
           </button>
+        )}
+        {running && confirmCancel && (
+          <div role="group" aria-label="Confirmer l'annulation" className="flex flex-wrap items-center justify-center gap-2">
+            <span className="text-sm text-ink-body">Arrêter l’analyse ? Les lots déjà extraits seront gardés.</span>
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmCancel(false);
+                onCancel();
+              }}
+              className="inline-flex min-h-11 items-center rounded-[10px] border-none bg-danger px-4 font-semibold text-white hover:opacity-90"
+            >
+              Arrêter
+            </button>
+            <button
+              type="button"
+              autoFocus
+              onClick={() => setConfirmCancel(false)}
+              className="inline-flex min-h-11 items-center rounded-[10px] border border-line-strong bg-surface px-4 font-semibold text-ink hover:bg-bg"
+            >
+              Continuer l’analyse
+            </button>
+          </div>
         )}
         {done && (
           <button
@@ -186,6 +212,14 @@ export const ProgressScreen: React.FC<{
             Voir la synthèse
             <Icons.arrow size={18} strokeWidth={2.2} />
           </button>
+        )}
+        {!running && !done && analysis.error_settings && (
+          <a
+            href="#/reglages"
+            className="inline-flex min-h-11 items-center rounded-[10px] border border-line-strong bg-surface px-5 font-semibold text-ink no-underline hover:bg-bg"
+          >
+            Ouvrir les Réglages
+          </a>
         )}
         {!running && !done && onRetry && (
           <button
@@ -211,6 +245,21 @@ export const ProgressScreen: React.FC<{
           </button>
         )}
       </div>
+      {running && permission === 'default' && (
+        <p className="m-0 text-center text-sm text-ink-muted">
+          L’analyse peut être longue.{' '}
+          <button
+            type="button"
+            onClick={async () => setPermission(await askNotifyPermission())}
+            className="border-none bg-transparent p-0 font-semibold text-accent underline hover:text-accent-ink"
+          >
+            Me prévenir à la fin
+          </button>
+        </p>
+      )}
+      {running && permission === 'granted' && (
+        <p className="m-0 text-center text-sm text-ink-muted">Une notification s’affichera à la fin de l’analyse.</p>
+      )}
     </main>
   );
 };
