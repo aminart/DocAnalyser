@@ -5,6 +5,32 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.3.1] — 2026-11-18
+
+### Corrigé
+
+- Gros documents analysés avec un modèle local (Ollama) : l'analyse pouvait s'arrêter au bout d'une heure ou plus
+  pendant le découpage en lots. Les lots étaient prévus pour la fenêtre théorique du modèle (128 000 tokens), alors
+  qu'Ollama n'en ouvre souvent qu'une petite partie et coupe le reste sans prévenir ; envoyés par 4 à une carte
+  graphique qui les traite un par un, ils attendaient leur tour en consommant leur délai de 10 minutes.
+- Un lot en échec arrêtait l'analyse en perdant tous les lots déjà extraits, et les autres lots continuaient
+  d'occuper le modèle après l'échec.
+
+### Modifié
+
+- Modèle local (adresse localhost ou port 11434) : une requête à la fois, lots d'au plus 32 000 tokens, jusqu'à
+  30 minutes par réponse ; la fenêtre réellement ouverte par Ollama est lue avant de commencer (lots adaptés, ou
+  arrêt immédiat avec le réglage à changer si elle est trop petite).
+- Délais réglables dans le .env : `LLM_TIMEOUT_SECONDS`, `LOCAL_LLM_TIMEOUT_SECONDS`, ainsi que
+  `LOCAL_CONCURRENT_LLM_REQUESTS` et `LOCAL_MAX_REQUEST_TOKENS`.
+- Un lot qui dépasse le délai est coupé en deux et redemandé avant d'abandonner.
+
+### Ajouté
+
+- Reprise d'une analyse interrompue : les lots extraits sont gardés 7 jours, une analyse relancée avec les mêmes
+  documents et le même modèle reprend là où elle s'était arrêtée.
+- Message d'échec plus précis : lot où l'analyse s'est arrêtée, lots gardés, réglage à changer.
+
 ## [2.3.0] — 2026-11-17
 
 ### Ajouté

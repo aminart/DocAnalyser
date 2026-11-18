@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from app.core import connexions, studiodock_ia
 from app.core.config import settings
@@ -26,6 +27,17 @@ class ProviderConf:
     context_tokens: int
     models: tuple[str, ...]
     max_output_tokens: int = 0  # 0 : valeur par défaut du serveur
+    local: bool = False  # modèle sur ce poste (Ollama, LM Studio…) : lent, une requête à la fois
+
+
+def is_local_base(api_base: str) -> bool:
+    """Adresse d'un serveur de modèles installé sur ce poste (localhost, ou port d'Ollama)."""
+    try:
+        url = urlsplit(api_base if "//" in api_base else f"http://{api_base}")
+        host, port = (url.hostname or "").lower(), url.port
+    except ValueError:
+        return False
+    return host in {"localhost", "127.0.0.1", "::1", "0.0.0.0"} or port == 11434
 
 
 @dataclass(frozen=True)
@@ -69,6 +81,7 @@ def providers() -> list[ProviderConf]:
             context_tokens=getattr(settings, f"{key}_CONTEXT_TOKENS"),
             models=_names(getattr(settings, f"{key}_AVAILABLE_MODELS")),
             max_output_tokens=getattr(settings, f"{key}_MAX_OUTPUT_TOKENS"),
+            local=is_local_base(getattr(settings, f"{key}_API_BASE") or ""),
         )
         for key in ("CUSTOM_LLM", "CUSTOM_LLM_2")
     ]
@@ -87,7 +100,7 @@ def providers() -> list[ProviderConf]:
         out.append(ProviderConf(
             key=f"{STUDIODOCK}{c.id}", kind="openai", name=c.name, api_key=c.api_key, api_base=c.api_base,
             ca_bundle=c.ca_bundle, context_tokens=c.context_tokens, models=c.models,
-            max_output_tokens=c.max_output_tokens,
+            max_output_tokens=c.max_output_tokens, local=c.local or is_local_base(c.api_base),
         ))
     for c in connexions.lister():
         base = {"gemini": llm_client.GEMINI_BASE, "anthropic": llm_client.ANTHROPIC_BASE}.get(c.kind, c.api_base)
@@ -95,6 +108,7 @@ def providers() -> list[ProviderConf]:
             key=c.id, kind=c.kind, name=c.name, api_key=connexions.cle(c), api_base=base.rstrip("/"),
             ca_bundle=connexions.certificat(c), context_tokens=c.context_tokens, models=tuple(c.models),
             max_output_tokens=c.max_output_tokens or (32_000 if c.kind != "openai" else 0),
+            local=c.kind == "openai" and is_local_base(c.api_base),
         ))
     return out
 
