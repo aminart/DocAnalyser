@@ -5,6 +5,18 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.4.1] — 2026-11-18
+
+### Modifié
+
+- Analyse par lots : les réponses du modèle sont reçues au fil de l'eau. Le délai d'attente porte sur chaque
+  morceau : un modèle qui écrit encore une longue réponse n'est plus coupé, un modèle bloqué est repéré plus vite
+  (10 minutes sans rien recevoir pour un modèle local, `LOCAL_STREAM_TIMEOUT_SECONDS`).
+- Modèles qui « réfléchissent » avant de répondre (Qwen…) : réflexion désactivée (champ `think` d'Ollama pour un
+  modèle local, consigne `/no_think` pour Qwen), car elle ajoute des milliers de mots par lot. Une réflexion
+  écrite malgré tout dans la réponse (`<think>…</think>`) en est retirée avant lecture. `DISABLE_THINKING=false`
+  pour la garder.
+
 ## [2.4.0] — 2026-11-18
 
 ### Ajouté
