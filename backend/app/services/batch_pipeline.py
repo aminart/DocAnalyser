@@ -26,6 +26,7 @@ from app.services.parser_service import AnchoredTextBlock
 logger = logging.getLogger("analyse")
 
 EXTRACT_SHARE = 0.5
+FOLLOW_SHARE = 0.5  # classement et rédaction : environ la moitié du temps d'extraction, pour l'estimation
 LOT_CACHE_DAYS = 7  # lots extraits gardés sur le disque, pour reprendre une analyse interrompue
 ASSIGN_MAX_ITEMS = 100  # éléments par appel de classement : au-delà, les petits modèles en oublient
 WRITE_MAX_ITEMS = 40  # éléments par appel de rédaction d'un thème
@@ -191,6 +192,7 @@ async def extract(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: s
     prompt = _extract_prompt(analysis.mode, analysis.language)
     done = resumed = 0
     _lot_purge()
+    started = time.monotonic()
 
     # Message de repli (envoi d'un bloc refusé) conservé en tête de la progression.
     previous = analysis.step_notes.get(1, "")
@@ -229,12 +231,15 @@ async def extract(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: s
             result = await extract_part(idx)
         except svc.AnalysisError as exc:
             # L'utilisateur doit savoir où l'analyse s'est arrêtée, et que le travail fait n'est pas perdu.
-            kept = (f"les {done} lots déjà extraits sont gardés : relancez l'analyse avec les mêmes documents et le "
-                    "même modèle pour reprendre là où elle s'est arrêtée." if done else
-                    "relancez l'analyse une fois le problème réglé.")
+            kept = (f"les {done} lots déjà extraits sont gardés : « Reprendre l'analyse » repart de là." if done else
+                    "reprenez l'analyse une fois le problème réglé.")
             raise type(exc)(f"{exc} (Arrêt au lot {k}/{len(groups)} de l'extraction ; {kept})") from exc
         done += 1
         resumed += bool(result.pop("_resumed", False))
+        computed = done - resumed
+        if computed >= 2:  # durée restante mesurée sur les lots réellement envoyés au modèle
+            per_lot = (time.monotonic() - started) / computed
+            analysis.eta_at = time.time() + per_lot * ((len(groups) - done) + FOLLOW_SHARE * len(groups))
         analysis.progress = 15 + 15 * done / len(groups)
         again = f" ({resumed} repris de l'analyse précédente)" if resumed else ""
         analysis.step_notes[1] = f"{prefix}{len(groups)} lots · lot {done}/{len(groups)} extrait{again}"
@@ -447,6 +452,7 @@ async def write_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], theme
     prompt = _theme_prompt(analysis)
     sem = asyncio.Semaphore(svc.concurrency(chain[0]))  # par requête, toutes parties confondues
     done = 0
+    started = time.monotonic()
 
     async def write_part(theme: dict[str, Any], part: list[Item], label: str) -> list[dict[str, Any]]:
         lines = "\n".join(i.line() for i in part)
@@ -481,6 +487,8 @@ async def write_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], theme
                 f"({raw} élément{'s' if raw > 1 else ''} de ce thème n'ont pas pu être rédigés par le modèle : "
                 "ils sont repris tels qu'extraits des documents.)")
         done += 1
+        per_theme = (time.monotonic() - started) / done
+        analysis.eta_at = time.time() + per_theme * (len(themes) - done + 0.5)  # + titre et « En bref »
         analysis.progress = 60 + 30 * done / len(themes)
         analysis.step_notes[3] = f"Rédaction thème par thème depuis les passages d'origine ({done}/{len(themes)})"
         return merged

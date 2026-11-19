@@ -5,6 +5,45 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.6.0] — 2026-11-18
+
+### Ajouté
+
+- Lecture des images par un modèle qui voit les images (facultatif) : pages scannées des PDF, images insérées
+  dans les PDF, Word et PowerPoint, et fichiers image importés (PNG, JPG, WEBP). Au lancement, « Lire les images
+  avec » propose les modèles configurés ; chaque image est transcrite (texte, tableau) ou décrite (schéma,
+  graphique), puis analysée avec le texte à son repère d'origine (« Page 12 », « Slide 4 »). Les images
+  décoratives (logos, icônes) sont ignorées, une image déjà lue n'est pas redemandée.
+- Sans modèle de vision, rien ne change : l'analyse porte sur le texte seul. Un modèle qui refuse les images
+  n'arrête pas l'analyse (texte seul, avec un message).
+
+### Modifié
+
+- Les fichiers image sont acceptés à l'import ; un document sans texte demande un modèle de vision au lancement.
+- Nouvelle dépendance : pypdfium2, pour rendre en image les pages scannées des PDF.
+
+## [2.5.0] — 2026-11-18
+
+### Ajouté
+
+- Bouton « Reprendre l'analyse » sur une analyse échouée ou annulée : elle repart avec les mêmes documents et
+  réglages, sans refaire les lots déjà extraits, et remplace l'ancienne dans l'historique.
+- Temps restant estimé pendant une analyse par lots, mesuré sur les premiers lots puis sur la rédaction des thèmes.
+- Onglet « Texte exporté » : le texte de la synthèse se corrige avant export ; les exports Markdown, Word et PDF
+  reprennent le texte modifié, qui est gardé dans l'historique. « Revenir au texte d'origine » annule tout.
+
+## [2.4.1] — 2026-11-18
+
+### Modifié
+
+- Analyse par lots : les réponses du modèle sont reçues au fil de l'eau. Le délai d'attente porte sur chaque
+  morceau : un modèle qui écrit encore une longue réponse n'est plus coupé, un modèle bloqué est repéré plus vite
+  (10 minutes sans rien recevoir pour un modèle local, `LOCAL_STREAM_TIMEOUT_SECONDS`).
+- Modèles qui « réfléchissent » avant de répondre (Qwen…) : réflexion désactivée (champ `think` d'Ollama pour un
+  modèle local, consigne `/no_think` pour Qwen), car elle ajoute des milliers de mots par lot. Une réflexion
+  écrite malgré tout dans la réponse (`<think>…</think>`) en est retirée avant lecture. `DISABLE_THINKING=false`
+  pour la garder.
+
 ## [2.4.0] — 2026-11-18
 
 ### Ajouté

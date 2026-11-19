@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     # Un modèle local traite un gros lot bien plus lentement qu'un service en ligne.
     LLM_TIMEOUT_SECONDS: int = 600
     LOCAL_LLM_TIMEOUT_SECONDS: int = 1800
+    # Réponses reçues au fil de l'eau : délai maximal sans aucun nouveau morceau pour un modèle local (le premier
+    # morceau arrive après la lecture du lot). Un modèle qui écrit encore n'est jamais coupé.
+    LOCAL_STREAM_TIMEOUT_SECONDS: int = 600
+    # Modèles qui « réfléchissent » avant de répondre (Qwen, DeepSeek R1…) : réflexion désactivée quand c'est
+    # possible, car elle ajoute des milliers de mots par lot sans améliorer une extraction fidèle.
+    DISABLE_THINKING: bool = True
     # Modèles sur ce poste : la carte graphique traite les requêtes une par une ; envoyées en parallèle, elles
     # attendent leur tour en consommant leur délai. Lots plus petits aussi : réponses plus rapides, et la fenêtre
     # réellement ouverte par Ollama est souvent bien plus petite que la fenêtre théorique du modèle.

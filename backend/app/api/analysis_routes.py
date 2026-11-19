@@ -26,6 +26,8 @@ class AnalysisCreate(BaseModel):
     cite: bool = True
     # Pages (ou slides) à analyser, par document : {"id du document": "12-45, 80"} ; absent = document entier
     sections: dict[str, str] = Field(default_factory=dict)
+    # Modèle qui lit les images des documents (pages scannées, schémas, photos) ; vide = texte seul
+    vision_model_id: str = ""
 
 
 def _get(analysis_id: str) -> svc.Analysis:
@@ -83,7 +85,7 @@ async def create_analysis(payload: AnalysisCreate) -> dict:
     try:
         analysis = svc.create_analysis(
             payload.document_ids, payload.mode, payload.level, payload.model_id, payload.language, payload.cite,
-            payload.sections,
+            payload.sections, payload.vision_model_id,
         )
     except svc.AnalysisError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -99,6 +101,30 @@ async def get_analysis(analysis_id: str) -> dict:
 async def cancel_analysis(analysis_id: str) -> dict:
     analysis = _get(analysis_id)
     svc.cancel_analysis(analysis)
+    return analysis.public()
+
+
+@router.post("/analyses/{analysis_id}/retry", status_code=202)
+async def retry_analysis(analysis_id: str) -> dict:
+    """Reprend une analyse échouée ou annulée ; les lots déjà extraits ne sont pas redemandés au modèle."""
+    try:
+        return svc.retry_analysis(_get(analysis_id)).public()
+    except svc.AnalysisError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+class MarkdownUpdate(BaseModel):
+    markdown: str | None = Field(default=None, max_length=2_000_000)  # None : retour au texte d'origine
+
+
+@router.put("/analyses/{analysis_id}/markdown")
+async def update_markdown(analysis_id: str, payload: MarkdownUpdate) -> dict:
+    """Texte de la synthèse modifié avant export (Markdown, Word, PDF)."""
+    analysis = _get(analysis_id)
+    try:
+        svc.set_markdown(analysis, payload.markdown)
+    except svc.AnalysisError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return analysis.public()
 
 

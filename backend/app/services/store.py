@@ -54,6 +54,7 @@ def save_document(doc: "StoredDocument") -> None:
         "id": doc.id, "name": doc.name, "ext": doc.ext, "size_bytes": doc.size_bytes, "units": doc.units,
         "pages": doc.pages, "warnings": doc.warnings,
         "blocks": [[b.file_name, b.location, b.content] for b in doc.blocks],
+        "images": doc.images,
     }
     _write("INSERT OR REPLACE INTO documents VALUES (?, ?, ?)",
            (doc.id, datetime.now(timezone.utc).isoformat(), json.dumps(data, ensure_ascii=False)))
@@ -68,7 +69,8 @@ def delete_document(doc_id: str) -> None:
 # -- Analyses -----------------------------------------------------------------
 
 _ANALYSIS_FIELDS = ("id", "mode", "level", "model_id", "language", "cite", "status", "progress", "step", "preview",
-                    "title", "result", "markdown", "error", "active_model_id", "batched", "questions")
+                    "title", "result", "markdown", "error", "active_model_id", "batched", "questions",
+                    "markdown_edited", "vision_model_id")
 
 
 def save_analysis(a: "Analysis") -> None:
@@ -98,7 +100,7 @@ def load_all() -> tuple[dict[str, "StoredDocument"], dict[str, "Analysis"]]:
         d = json.loads(raw)
         documents[doc_id] = StoredDocument(
             d["id"], d["name"], d["ext"], d["size_bytes"], d["units"], d["pages"],
-            [AnchoredTextBlock(*b) for b in d["blocks"]], d.get("warnings", []),
+            [AnchoredTextBlock(*b) for b in d["blocks"]], d.get("warnings", []), d.get("images", []),
         )
         created[doc_id] = datetime.fromisoformat(created_at)
 
@@ -124,4 +126,9 @@ def load_all() -> tuple[dict[str, "StoredDocument"], dict[str, "Analysis"]]:
         if doc_id not in used and now - created[doc_id] > ORPHAN_DOC_TTL:
             delete_document(doc_id)
             documents.pop(doc_id)
+
+    # Images qu'aucun document ne cite plus (documents supprimés) : retirées du disque.
+    from app.services import image_reader
+
+    image_reader.purge({i["file"] for d in documents.values() for i in d.images})
     return documents, analyses

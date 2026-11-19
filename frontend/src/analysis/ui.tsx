@@ -343,7 +343,7 @@ const ExportMenu: React.FC<{ analysisId: string }> = ({ analysisId }) => {
   );
 };
 
-export type ReportTab = 'report' | 'questions';
+export type ReportTab = 'report' | 'questions' | 'text';
 
 /** Onglets de l'écran de résultat : la synthèse, et les questions posées sur les documents. */
 export interface ReportTabs {
@@ -425,6 +425,7 @@ export const ReportBanner: React.FC<{
               [
                 ['report', analysis.mode === 'flow' ? 'Parcours' : 'Synthèse'],
                 ['questions', 'Questions'],
+                ['text', analysis.markdown_edited ? 'Texte exporté (modifié)' : 'Texte exporté'],
               ] as const
             ).map(([key, label]) => {
               const active = tabs.active === key;

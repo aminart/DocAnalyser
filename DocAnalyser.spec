@@ -42,7 +42,7 @@ binaries = []
 hiddenimports = collect_submodules("uvicorn") + collect_submodules("app")
 
 # Lecture des documents et exports : bibliothèques avec données (pdfminer : tables de caractères des PDF)
-for paquet in ("pdfminer", "docx", "pptx", "openpyxl", "fpdf"):
+for paquet in ("pdfminer", "pypdfium2", "pypdfium2_raw", "docx", "pptx", "openpyxl", "fpdf"):
     try:
         paquet_datas, paquet_binaries, paquet_hidden = collect_all(paquet)
     except Exception:  # noqa: BLE001 : paquet absent

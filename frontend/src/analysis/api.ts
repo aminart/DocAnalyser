@@ -40,6 +40,8 @@ export const analysisApi = {
     cite: boolean;
     /** Pages (ou slides) à analyser par document, ex. { d1: '12-45, 80' } ; absent = document entier. */
     sections?: Record<string, string>;
+    /** Modèle qui lit les images des documents ; absent = texte seul. */
+    vision_model_id?: string;
   }): Promise<Analysis> {
     return request<Analysis>('/analyses', {
       method: 'POST',
@@ -51,6 +53,17 @@ export const analysisApi = {
   getAnalysis: (id: string) => request<Analysis>(`/analyses/${id}`),
 
   cancelAnalysis: (id: string) => request<Analysis>(`/analyses/${id}/cancel`, { method: 'POST' }),
+
+  /** Reprend une analyse échouée ou annulée (nouvelle analyse, lots déjà extraits repris). */
+  retryAnalysis: (id: string) => request<Analysis>(`/analyses/${id}/retry`, { method: 'POST' }),
+
+  /** Texte exporté modifié ; null revient au texte produit par l'analyse. */
+  updateMarkdown: (id: string, markdown: string | null) =>
+    request<Analysis>(`/analyses/${id}/markdown`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markdown }),
+    }),
 
   listAnalyses: () => request<AnalysisSummary[]>('/analyses'),
 

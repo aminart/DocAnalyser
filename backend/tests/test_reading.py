@@ -83,7 +83,7 @@ import pytest
 from app.services.parser_service import UnsupportedFormat, check_format
 
 
-@pytest.mark.parametrize("name", ["photo.png", "archive.zip", "donnees.json", "sans_extension"])
+@pytest.mark.parametrize("name", ["photo.gif", "archive.zip", "donnees.json", "sans_extension"])
 def test_format_inconnu_refuse_au_lieu_d_etre_lu_comme_du_texte(name):
     with pytest.raises(UnsupportedFormat, match="ne sait pas lire"):
         check_format(name, b"\x89PNG\r\n\x1a\n\x00\x00")
@@ -95,10 +95,10 @@ def test_binaire_renomme_en_txt_refuse():
     check_format("notes.txt", "Texte accentué".encode("utf-8"))  # un vrai texte passe
 
 
-def test_import_d_une_image_refuse_avec_un_message_clair():
+def test_image_abimee_refusee_avec_un_message_clair():
     from app.services import analysis_service as svc
 
-    with pytest.raises(svc.AnalysisError, match="ne sait pas lire le format .png"):
+    with pytest.raises(svc.AnalysisError, match="pas une image lisible"):
         svc.store_document(b"\x89PNG\r\n\x1a\n\x00\x00\x00", "capture.png")
 
 

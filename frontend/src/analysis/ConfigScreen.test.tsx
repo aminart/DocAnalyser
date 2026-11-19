@@ -72,14 +72,14 @@ describe('ConfigScreen', () => {
     expect((await screen.findByRole('alert')).textContent).toMatch(/Serveur injoignable/);
   });
 
-  it('refuse une image glissée dans la zone sans l’envoyer au serveur', async () => {
+  it('refuse une archive glissée dans la zone sans l’envoyer au serveur', async () => {
     api.listModels.mockResolvedValue([model]);
     api.uploadDocument.mockClear();
     const { container } = render(<ConfigScreen onLaunched={vi.fn()} />);
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [new File(['png'], 'capture.png')] } });
+    fireEvent.change(input, { target: { files: [new File(['zip'], 'dossier.zip')] } });
 
-    const refused = (await screen.findByText(/Format \.png non lu/)).closest('li')!;
+    const refused = (await screen.findByText(/Format \.zip non lu/)).closest('li')!;
     expect(within(refused).getByText('Erreur')).toBeTruthy();
     expect(api.uploadDocument).not.toHaveBeenCalled();
   });
@@ -110,5 +110,29 @@ describe('ConfigScreen', () => {
     expect(countSelection('12 à 14 ; 290-', 299)).toBe(13);
     expect(countSelection('abc', 299)).toBeNull();
     expect(countSelection('', 299)).toBeNull();
+  });
+
+  it('propose de lire les images avec un modèle qui voit, et l’exige pour une image seule', async () => {
+    api.listModels.mockResolvedValue([model, { ...model, id: 'OLLAMA:qwen2.5vl', name: 'qwen2.5vl', tier: 'fast' }]);
+    api.uploadDocument.mockResolvedValue({
+      id: 'i1', name: 'tableau.png', ext: 'png', size_bytes: 10, units: '1 image', pages: 1, warnings: [],
+      images: 1, images_only: true,
+    });
+    api.createAnalysis.mockResolvedValue({ id: 'a3' } as Analysis);
+    const { container } = render(<ConfigScreen onLaunched={vi.fn()} />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['png'], 'tableau.png')] } });
+
+    const select = (await screen.findByLabelText('Lire les images avec')) as HTMLSelectElement;
+    const launch = screen.getByRole('button', { name: /Analyser/ }) as HTMLButtonElement;
+    expect(screen.getByText(/ne contient que des images/)).toBeTruthy();
+    expect(launch.disabled).toBe(true);
+
+    fireEvent.change(select, { target: { value: 'OLLAMA:qwen2.5vl' } });
+    await waitFor(() => expect(launch.disabled).toBe(false));
+    fireEvent.click(launch);
+    await waitFor(() =>
+      expect(api.createAnalysis).toHaveBeenCalledWith(expect.objectContaining({ vision_model_id: 'OLLAMA:qwen2.5vl' })),
+    );
   });
 });

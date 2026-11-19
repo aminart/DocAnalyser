@@ -3,6 +3,7 @@ import { analysisApi } from '../analysis/api';
 import { ConfigScreen } from '../analysis/ConfigScreen';
 import { HistoryScreen } from '../analysis/HistoryScreen';
 import { JourneyReport } from '../analysis/JourneyReport';
+import { MarkdownEditor } from '../analysis/MarkdownEditor';
 import { ProgressScreen } from '../analysis/ProgressScreen';
 import { QuestionsPanel } from '../analysis/QuestionsPanel';
 import { SettingsScreen } from '../analysis/SettingsScreen';
@@ -10,16 +11,17 @@ import { ThemesReport } from '../analysis/ThemesReport';
 import { Analysis } from '../analysis/types';
 import { AppHeader, ReportBanner, ReportTab, View, docCountLabel, modelLabel } from '../analysis/ui';
 
-type Route = { screen: 'config' | 'history' | 'settings' } | { screen: 'progress' | 'result' | 'questions'; id: string };
+type Route = { screen: 'config' | 'history' | 'settings' } | { screen: 'progress' | 'result' | 'questions' | 'text'; id: string };
 
 const LAST_ANALYSIS_KEY = 'analyse-documentaire:last';
 
 const parseHash = (): Route => {
   if (window.location.hash === '#/historique') return { screen: 'history' };
   if (window.location.hash === '#/reglages') return { screen: 'settings' };
-  const m = window.location.hash.match(/^#\/analyse\/([\w-]+)(\/synthese|\/questions)?$/);
+  const m = window.location.hash.match(/^#\/analyse\/([\w-]+)(\/synthese|\/questions|\/texte)?$/);
   if (!m) return { screen: 'config' };
-  return { screen: m[2] === '/questions' ? 'questions' : m[2] ? 'result' : 'progress', id: m[1] };
+  const screen = m[2] === '/questions' ? 'questions' : m[2] === '/texte' ? 'text' : m[2] ? 'result' : 'progress';
+  return { screen, id: m[1] };
 };
 
 const go = (hash: string) => {
@@ -49,6 +51,7 @@ export const App: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastId, setLastId] = useState<string | null>(readLast);
   const [questionCount, setQuestionCount] = useState(0);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash());
@@ -113,14 +116,27 @@ export const App: React.FC = () => {
     }
   };
 
+  const retry = async () => {
+    if (!current) return;
+    setRetrying(true);
+    try {
+      onLaunched(await analysisApi.retryAnalysis(current.id));
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Impossible de reprendre l’analyse.');
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   const activeView: View =
     route.screen === 'config' ? 'new' : route.screen === 'history' ? 'history' : route.screen === 'settings' ? 'settings' : 'analysis';
   const nav = { active: activeView, onNavigate: navigate, analysisAvailable: !!lastId };
 
   const tabs = routeId
     ? {
-        active: (route.screen === 'questions' ? 'questions' : 'report') as ReportTab,
-        onChange: (tab: ReportTab) => go(`#/analyse/${routeId}/${tab === 'questions' ? 'questions' : 'synthese'}`),
+        active: (route.screen === 'questions' ? 'questions' : route.screen === 'text' ? 'text' : 'report') as ReportTab,
+        onChange: (tab: ReportTab) =>
+          go(`#/analyse/${routeId}/${tab === 'questions' ? 'questions' : tab === 'text' ? 'texte' : 'synthese'}`),
         questions: questionCount,
       }
     : undefined;
@@ -179,6 +195,18 @@ export const App: React.FC = () => {
           <QuestionsPanel analysis={current} onCount={setQuestionCount} />
         </>
       );
+    } else if (route.screen === 'text' && current.status === 'done' && current.result) {
+      body = (
+        <>
+          <ReportBanner
+            analysis={current}
+            onNewAnalysis={() => go('#/')}
+            chips={[current.mode_label, current.level_label, docCountLabel(current.documents.length), modelLabel(current)]}
+            tabs={tabs}
+          />
+          <MarkdownEditor analysis={current} onSaved={setAnalysis} />
+        </>
+      );
     } else if (route.screen === 'result' && current.status === 'done' && current.result) {
       const props = { analysis: current, onNewAnalysis: () => go('#/'), tabs };
       body =
@@ -194,20 +222,23 @@ export const App: React.FC = () => {
           onCancel={cancel}
           onShowResult={() => go(`#/analyse/${current.id}/synthese`)}
           onBack={() => go('#/')}
+          onRetry={current.status === 'failed' || current.status === 'cancelled' ? retry : undefined}
+          retrying={retrying}
         />
       );
     }
   }
 
   const showingProgress =
-    route.screen === 'progress' || ((route.screen === 'result' || route.screen === 'questions') && current?.status !== 'done');
+    route.screen === 'progress' || ((route.screen === 'result' || route.screen === 'questions' || route.screen === 'text') &&
+      current?.status !== 'done');
 
   return (
     <div className="min-h-screen bg-bg font-sans text-[15px] leading-normal text-ink">
       {showingProgress && current ? (
         <AppHeader right={`${current.mode_label} · ${current.level_label} · ${modelLabel(current)}`} />
       ) : (
-        <AppHeader {...nav} wide={route.screen === 'result' || route.screen === 'questions'} />
+        <AppHeader {...nav} wide={route.screen === 'result' || route.screen === 'questions' || route.screen === 'text'} />
       )}
 
       {/* La configuration reste montée pour conserver documents et choix entre deux analyses. */}

@@ -116,12 +116,15 @@ def _error(status: int, body: str) -> LLMError:
 async def chat(
     *, base_url: str, api_key: str, model: str, messages: list[dict[str, str]], temperature: float = 0,
     max_tokens: int = 0, json_mode: bool = False, ca_bundle: str = "",
-    on_delta: Callable[[str], None] | None = None, timeout: float | None = None,
+    on_delta: Callable[[str], None] | None = None, timeout: float | None = None, stream: bool = False,
+    extra: dict[str, Any] | None = None,
 ) -> tuple[str, str | None]:
     """Envoie une conversation ; renvoie (texte, finish_reason). Avec on_delta, réponse reçue en streaming.
 
     timeout : attente maximale sans rien recevoir (secondes) ; par défaut 600 s pour une réponse complète et
     STREAM_READ_TIMEOUT entre deux morceaux en streaming.
+    stream : réponse reçue au fil de l'eau même sans on_delta (le délai porte alors sur chaque morceau).
+    extra : champs ajoutés tels quels à la requête (ex. {"think": False} pour Ollama).
     """
     url = base_url.rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -132,20 +135,22 @@ async def chat(
         payload["max_tokens"] = max_tokens
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
+    payload.update(extra or {})
     try:
-        return await _send(_client(ca_bundle), url, headers, payload, on_delta, timeout)
+        return await _send(_client(ca_bundle), url, headers, payload, on_delta, timeout, stream)
     except BadRequestError as exc:
         # Certains serveurs (anciennes versions de vLLM…) refusent response_format : la consigne impose déjà le JSON.
         if json_mode and any(k in str(exc).lower() for k in ("response_format", "json_object", "json mode")):
             payload.pop("response_format", None)
-            return await _send(_client(ca_bundle), url, headers, payload, on_delta, timeout)
+            return await _send(_client(ca_bundle), url, headers, payload, on_delta, timeout, stream)
         raise
 
 
 async def _send(client: httpx.AsyncClient, url: str, headers: dict[str, str], payload: dict[str, Any],
-                on_delta: Callable[[str], None] | None, timeout: float | None = None) -> tuple[str, str | None]:
+                on_delta: Callable[[str], None] | None, timeout: float | None = None,
+                stream: bool = False) -> tuple[str, str | None]:
     try:
-        if on_delta is None:
+        if on_delta is None and not stream:
             kwargs = {"timeout": httpx.Timeout(timeout, connect=20.0)} if timeout else {}
             resp = await client.post(url, headers=headers, json=payload, **kwargs)
             if resp.status_code >= 400:
@@ -177,7 +182,8 @@ async def _send(client: httpx.AsyncClient, url: str, headers: dict[str, str], pa
                     delta = (choice.get("delta") or {}).get("content") or ""
                     if delta:
                         text.append(delta)
-                        on_delta("".join(text))
+                        if on_delta:
+                            on_delta("".join(text))
                     finish = choice.get("finish_reason") or finish
         return "".join(text), finish
     except httpx.TimeoutException as exc:

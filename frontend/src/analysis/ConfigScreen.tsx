@@ -74,7 +74,16 @@ export const LEVELS: { id: AnalysisLevel; title: string; desc: string; bars: num
 
 const BAR_WIDTHS = ['100%', '80%', '92%', '64%', '100%', '76%', '88%'];
 const TIER_FOR_LEVEL: Record<AnalysisLevel, ModelInfo['tier']> = { synth: 'fast', detail: 'balanced', deep: 'deep' };
-const ACCEPT = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.vtt,.srt,.html,.htm,.mapline,.missionmap';
+const ACCEPT = '.pdf,.docx,.pptx,.xlsx,.csv,.txt,.md,.vtt,.srt,.html,.htm,.mapline,.missionmap,.png,.jpg,.jpeg,.webp';
+const VISION_KEY = 'docanalyser:vision-model';
+
+const readVision = () => {
+  try {
+    return localStorage.getItem(VISION_KEY) ?? '';
+  } catch {
+    return '';
+  }
+};
 const ACCEPTED_EXTS = new Set(ACCEPT.split(',').map((e) => e.slice(1)));
 const LEGACY: Record<string, string> = { doc: 'docx', xls: 'xlsx', ppt: 'pptx' };
 
@@ -135,6 +144,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
   const [showAllModels, setShowAllModels] = useState(false);
   const [language, setLanguage] = useState<'fr' | 'en'>('fr');
   const [cite, setCite] = useState(true);
+  const [visionId, setVisionId] = useState<string>(readVision);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,7 +177,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
       // Les anciens formats Office passent : le serveur explique comment les convertir.
       const ext = file.name.includes('.') ? file.name.split('.').pop()!.toLowerCase() : '';
       if (!ACCEPTED_EXTS.has(ext) && !LEGACY[ext]) {
-        const error = `Format ${ext ? `.${ext}` : 'sans extension'} non lu par DocAnalyser (images et archives comprises).`;
+        const error = `Format ${ext ? `.${ext}` : 'sans extension'} non lu par DocAnalyser (archives comprises).`;
         setFiles((prev) => prev.map((f) => (f.key === key ? { ...f, status: 'error', error } : f)));
         return;
       }
@@ -215,14 +225,29 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
   const totalPages = ready.reduce((n, f) => n + pagesOf(f), 0);
   const eta = `≈ ${lvl.minutes + Math.floor(totalPages / 150)} min`;
 
-  const canLaunch = ready.length > 0 && !uploading && !!selectedModel && !submitting;
+  // Images des documents : lues seulement si un modèle qui voit les images est choisi (facultatif).
+  const imageCount = ready.reduce((n, f) => n + (f.doc?.images ?? 0), 0);
+  const imagesOnly = ready.filter((f) => f.doc?.images_only).map((f) => f.name);
+  const vision = imageCount > 0 ? configured.find((m) => m.id === visionId) : undefined;
+  const pickVision = (id: string) => {
+    setVisionId(id);
+    try {
+      localStorage.setItem(VISION_KEY, id);
+    } catch {
+      /* stockage indisponible */
+    }
+  };
+
+  const canLaunch = ready.length > 0 && !uploading && !!selectedModel && !submitting && (!imagesOnly.length || !!vision);
   const blocker = !ready.length
     ? 'Importez au moins un document.'
     : uploading
       ? 'Lecture des documents en cours…'
       : !selectedModel
         ? 'Aucun modèle disponible : complétez backend/.env.'
-        : null;
+        : imagesOnly.length && !vision
+          ? `${imagesOnly.join(', ')} ne contient que des images : choisissez un modèle pour les lire.`
+          : null;
 
   const launch = async () => {
     if (!canLaunch || !selectedModel) return;
@@ -236,6 +261,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
         model_id: selectedModel.id,
         language,
         cite,
+        vision_model_id: vision?.id,
         sections: Object.fromEntries(
           ready.filter((f) => f.doc?.sections && f.selection?.trim()).map((f) => [f.doc!.id, f.selection!.trim()]),
         ),
@@ -287,7 +313,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                 Glissez vos documents ici, ou <span className="text-accent underline">parcourez vos fichiers</span>
               </span>
               <span className="text-[13px] text-ink-muted">
-                PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT, HTML, MAPLINE · plusieurs fichiers acceptés
+                PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT/SRT, HTML, MAPLINE, images · plusieurs fichiers acceptés
               </span>
               <input
                 ref={inputRef}
@@ -524,6 +550,34 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                 );
               })}
             </div>
+            {imageCount > 0 && (
+              <div className="mt-5 flex flex-col gap-2 rounded-xl border border-line bg-surface-2 p-4">
+                <label htmlFor="vision-model" className="font-semibold">
+                  Lire les images avec
+                </label>
+                <p className="m-0 text-sm text-ink-muted">
+                  Vos documents contiennent {imageCount} image{imageCount > 1 ? 's' : ''} (pages scannées, schémas,
+                  photos). Un modèle qui voit les images peut les transcrire avant l’analyse ; sinon, seul le texte est
+                  analysé.
+                </p>
+                <select
+                  id="vision-model"
+                  value={vision?.id ?? ''}
+                  onChange={(e) => pickVision(e.target.value)}
+                  className="min-h-11 max-w-[420px] rounded-lg border border-line-strong bg-surface px-3 text-sm text-ink"
+                >
+                  <option value="">Ne pas lire les images</option>
+                  {configured.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} · {m.provider_label}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[13px] text-ink-muted">
+                  Le modèle doit voir les images (par exemple Qwen 2.5 VL ou Gemma 3 avec Ollama, GPT-4o, Gemini, Claude).
+                </span>
+              </div>
+            )}
             {hiddenCount > 0 && (
               <button
                 type="button"
@@ -549,6 +603,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                   ['Mode', MODES.find((m) => m.id === mode)!.title],
                   ['Niveau', lvl.title],
                   ['Modèle', selectedModel?.name ?? '—'],
+                  ...(imageCount > 0 ? ([['Images', vision ? `lues par ${vision.name}` : 'non lues']] as const) : []),
                 ] as const
               ).map(([dt, dd], i, arr) => (
                 <div

@@ -42,7 +42,13 @@ SUPPORTED_FORMATS: dict[str, str] = {
     ".htm": "page web",
     ".mapline": "projet Mapline",
     ".missionmap": "projet Mapline",
+    # Images : lues seulement par un modèle qui voit les images, choisi au lancement de l'analyse.
+    ".png": "image PNG",
+    ".jpg": "image JPEG",
+    ".jpeg": "image JPEG",
+    ".webp": "image WebP",
 }
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 # Formats lus comme du texte : un contenu binaire y trahit un fichier renommé ou d'un autre type.
 TEXT_FORMATS = {".csv", ".txt", ".md", ".vtt", ".srt", ".html", ".htm", ".mapline", ".missionmap"}
 
@@ -52,7 +58,7 @@ class UnsupportedFormat(ValueError):
 
 
 def formats_label() -> str:
-    return "PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT, SRT, HTML et MAPLINE"
+    return "PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, VTT, SRT, HTML, MAPLINE et images (PNG, JPG, WEBP)"
 
 
 @dataclass
@@ -75,6 +81,7 @@ class ParsedDocument:
     blocks: list[AnchoredTextBlock] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     units: str = ""  # « 18 pages », « 412 lignes », « 12 slides »…
+    empty_pages: list[int] = field(default_factory=list)  # pages PDF sans texte (scans), lues en image si possible
 
 
 def decode_text(raw: bytes) -> str:
@@ -94,8 +101,13 @@ def check_format(name: str, content: bytes) -> None:
         what = f"le format {suffix}" if suffix else "un fichier sans extension"
         raise UnsupportedFormat(
             f"{name} : DocAnalyser ne sait pas lire {what}. Formats acceptés : {formats_label()}. "
-            "Les images et les archives (.zip) ne sont pas lues."
+            "Les archives (.zip) ne sont pas lues."
         )
+    if suffix in IMAGE_SUFFIXES:
+        from app.services.image_reader import is_image
+
+        if not is_image(content):
+            raise UnsupportedFormat(f"{name} n'est pas une image lisible : le fichier est peut-être abîmé.")
     if suffix in TEXT_FORMATS and b"\x00" in content[:8192]:
         raise UnsupportedFormat(
             f"{name} ne contient pas de texte lisible : c'est sans doute un fichier d'un autre type renommé en {suffix}."
@@ -231,6 +243,7 @@ class MultiFormatDocumentParser:
             ".missionmap": self._parse_mapline,
             ".txt": self._parse_plain_text,
             ".md": self._parse_plain_text,
+            **{ext: self._parse_image for ext in IMAGE_SUFFIXES},
         }
         if suffix not in readers:
             raise UnsupportedFormat(f"{original_name} : format {suffix or 'sans extension'} non pris en charge")
@@ -245,12 +258,13 @@ class MultiFormatDocumentParser:
             if text:
                 out.blocks.append(AnchoredTextBlock(name, f"Page {i}", text))
         out.units = _plural(len(result.pages), "page")
+        out.empty_pages = list(result.empty)
         if result.empty:
             empty = result.empty
             listed = ", ".join(map(str, empty[:10])) + ("…" if len(empty) > 10 else "")
             out.warnings.append(
-                f"{_plural(len(empty), 'page')} sans texte lisible (scan ou image), non analysée"
-                f"{'s' if len(empty) > 1 else ''} : p. {listed}"
+                f"{_plural(len(empty), 'page')} sans texte lisible (scan ou image), lue"
+                f"{'s' if len(empty) > 1 else ''} seulement avec un modèle qui voit les images : p. {listed}"
             )
         if result.repeated:
             listed = ", ".join(f"« {t} »" for t in result.repeated[:3]) + ("…" if len(result.repeated) > 3 else "")
@@ -419,6 +433,12 @@ class MultiFormatDocumentParser:
         if empty:
             out.warnings.append(f"{_plural(len(empty), 'slide')} sans texte (images seules) : {', '.join(map(str, empty[:10]))}")
         return out
+
+    # -- Images ----------------------------------------------------------------
+
+    def _parse_image(self, file_path: Path, name: str) -> ParsedDocument:
+        # Aucun texte : l'image est mise de côté à l'import (image_reader) et lue par un modèle de vision.
+        return ParsedDocument([], [], "1 image")
 
     # -- Sous-titres -----------------------------------------------------------
 
