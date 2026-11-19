@@ -29,7 +29,7 @@ const make = (themes: Theme[], deepening: Analysis['deepening'] = null): Analysi
 describe('Approfondir ce thème', () => {
   it('lance l’approfondissement du thème choisi et transmet l’analyse mise à jour', async () => {
     const a = make([theme('Accueil'), theme('Tarifs')]);
-    const running = make(a.result!.themes as Theme[], { theme: 1, title: 'Tarifs', status: 'running', error: null });
+    const running = make((a.result as ThemesResult).themes, { theme: 1, title: 'Tarifs', status: 'running', error: null });
     api.deepenTheme.mockResolvedValueOnce(running);
     const onUpdate = vi.fn();
     const { rerender } = render(<ThemesReport analysis={a} result={a.result as ThemesResult} onNewAnalysis={vi.fn()} onUpdate={onUpdate} />);
