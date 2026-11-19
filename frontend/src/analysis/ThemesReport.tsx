@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { analysisApi } from './api';
 import { SourcePanel } from './SourcePanel';
-import { Analysis, SourceRequest, ThemesResult } from './types';
+import { Analysis, SourceRequest, Theme, ThemesResult } from './types';
 import {
   Disclaimer,
   Emphasis,
@@ -23,19 +24,132 @@ const ACTIONS_LABEL: Record<string, string> = {
   notes: 'Prochaines étapes',
 };
 
+const DEEPEN_HINT = 'Réécrit ce thème en version très détaillée à partir des passages des documents qui le concernent.';
+
+/** « Approfondir ce thème », son suivi, son échec éventuel et le retour à la version précédente. */
+const DeepenBar: React.FC<{
+  analysis: Analysis;
+  theme: Theme;
+  index: number;
+  onUpdate?: (a: Analysis) => void;
+}> = ({ analysis, theme, index, onUpdate }) => {
+  const [error, setError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const d = analysis.deepening;
+  const mine = d?.theme === index;
+  const busy = sending || d?.status === 'running';
+
+  const act = async (call: () => Promise<Analysis>) => {
+    setSending(true);
+    setError(null);
+    try {
+      onUpdate?.(await call());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Action impossible.');
+    } finally {
+      setSending(false);
+    }
+  };
+  const start = () => act(() => analysisApi.deepenTheme(analysis.id, index));
+
+  if (mine && d?.status === 'running') {
+    return (
+      <div role="status" className="flex items-center gap-3 rounded-xl bg-bg px-4 py-3 text-sm text-ink-body">
+        <svg className="ad-spin shrink-0" width={18} height={18} viewBox="0 0 64 64" aria-hidden="true">
+          <circle cx="32" cy="32" r="26" fill="none" stroke="var(--nn-line)" strokeWidth={8} />
+          <path d="M32 6a26 26 0 0 1 26 26" fill="none" stroke="var(--nn-primary)" strokeWidth={8} strokeLinecap="round" />
+        </svg>
+        <span>
+          Approfondissement en cours : relecture des passages et réécriture du thème. Comptez quelques minutes avec un
+          modèle installé sur ce poste ; le reste de la synthèse reste consultable.
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {mine && d?.status === 'failed' && (
+        <p role="alert" className="m-0 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger-text">
+          <span>L'approfondissement a échoué : {d.error}</span>
+          <button
+            type="button"
+            onClick={() => act(() => analysisApi.dismissDeepening(analysis.id))}
+            className="border-none bg-transparent p-0 text-sm font-semibold text-danger-text underline"
+          >
+            Fermer
+          </button>
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="m-0 text-sm text-danger-text">
+          {error}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <button
+          type="button"
+          onClick={start}
+          disabled={busy}
+          title={busy && !mine ? `Attendez la fin de l'approfondissement de « ${d?.title} »` : DEEPEN_HINT}
+          className="inline-flex min-h-11 items-center gap-2 rounded-[10px] border border-line-strong bg-surface px-4 text-sm font-semibold text-ink hover:bg-bg disabled:opacity-50"
+        >
+          {mine && d?.status === 'failed' ? 'Réessayer' : theme.deepened ? 'Approfondir encore' : 'Approfondir ce thème'}
+        </button>
+        {theme.previous && (
+          <button
+            type="button"
+            onClick={() => act(() => analysisApi.undoDeepen(analysis.id, index))}
+            disabled={busy}
+            className="min-h-11 border-none bg-transparent px-2 text-sm font-semibold text-accent underline-offset-2 hover:underline disabled:opacity-50"
+          >
+            Revenir à la version précédente
+          </button>
+        )}
+        {theme.deepened && analysis.markdown_edited && (
+          <span className="text-xs text-warning-text">
+            Le texte exporté ayant été modifié à la main, il ne reprend pas cette version : voir l'onglet « Texte exporté ».
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const scrollTo = (id: string) => (e: React.MouseEvent) => {
   e.preventDefault();
   document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
-export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; onNewAnalysis: () => void; tabs?: ReportTabs }> = ({
-  analysis,
-  result,
-  onNewAnalysis,
-  tabs,
-}) => {
+export const ThemesReport: React.FC<{
+  analysis: Analysis;
+  result: ThemesResult;
+  onNewAnalysis: () => void;
+  tabs?: ReportTabs;
+  /** Analyse mise à jour (thème approfondi) ; sans lui, le bouton « Approfondir ce thème » est masqué. */
+  onUpdate?: (a: Analysis) => void;
+}> = ({ analysis, result, onNewAnalysis, tabs, onUpdate }) => {
   const [closed, setClosed] = useState<number[]>([]);
   const [source, setSource] = useState<SourceRequest | null>(null);
+  const deepening = analysis.deepening?.status === 'running';
+
+  // Thème en cours d'approfondissement : l'analyse est relue jusqu'à ce qu'il soit réécrit.
+  useEffect(() => {
+    if (!deepening || !onUpdate) return;
+    let stopped = false;
+    const timer = window.setInterval(async () => {
+      try {
+        const a = await analysisApi.getAnalysis(analysis.id);
+        if (!stopped && a.deepening?.status !== 'running') onUpdate(a);
+      } catch {
+        /* nouvel essai au prochain passage */
+      }
+    }, 2000);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [deepening, analysis.id, onUpdate]);
   const nDocs = analysis.documents.length;
   // Tout ce que le modèle a rédigé est affiché : le niveau a déjà réglé la profondeur de la synthèse.
   const showSources = analysis.cite;
@@ -205,6 +319,7 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                   </h2>
                   <span className="text-[13px] text-ink-muted">
                     {t.presence} · {t.points.length} point{t.points.length > 1 ? 's' : ''} clé{t.points.length > 1 ? 's' : ''}
+                    {t.deepened && ' · approfondi'}
                   </span>
                 </div>
                 <button
@@ -300,6 +415,8 @@ export const ThemesReport: React.FC<{ analysis: Analysis; result: ThemesResult; 
                       </div>
                     </div>
                   )}
+
+                  {onUpdate && <DeepenBar analysis={analysis} theme={result.themes[i]} index={i} onUpdate={onUpdate} />}
                 </div>
               )}
             </section>

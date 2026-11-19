@@ -83,6 +83,9 @@ export interface Theme {
   quote_check: QuoteCheck;
   quote_by: string;
   nuance: string;
+  /** Thème réécrit par « Approfondir ce thème » ; previous : version d'avant, pour y revenir. */
+  deepened?: boolean;
+  previous?: Theme;
 }
 
 export interface ActionItem {
@@ -211,6 +214,15 @@ export interface Analysis {
   /** L'échec se corrige dans les Réglages (clé refusée, adresse manquante ou injoignable, modèle absent). */
   error_settings?: boolean;
   questions?: Question[];
+  /** Thème en cours d'approfondissement, ou dont l'approfondissement a échoué ; null si aucun. */
+  deepening?: Deepening | null;
+}
+
+export interface Deepening {
+  theme: number;
+  title: string;
+  status: 'running' | 'failed';
+  error: string | null;
 }
 
 /** Question posée sur les documents d'une analyse (réponse sourcée, rédigée au fil de l'eau). */

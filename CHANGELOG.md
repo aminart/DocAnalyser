@@ -5,6 +5,17 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.8.0] — 2026-11-19
+
+### Ajouté
+
+- « Approfondir ce thème », sur chaque thème d'une synthèse terminée, y compris depuis l'Historique : le thème
+  est réécrit en version très détaillée à partir des passages des documents qui le concernent (corpus entier
+  s'il tient dans la fenêtre du modèle, sinon passages cités puis passages retrouvés par la recherche des
+  Questions). Le reste de la synthèse ne change pas, l'export suit.
+- Garde-fous : un point de l'ancienne version dont un chiffre ou un nom propre a disparu est repris tel quel ;
+  « Revenir à la version précédente » ; un texte exporté modifié à la main n'est jamais écrasé.
+
 ## [2.7.0] — 2026-11-18
 
 ### Ajouté

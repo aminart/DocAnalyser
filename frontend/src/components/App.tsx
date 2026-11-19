@@ -262,7 +262,7 @@ export const App: React.FC = () => {
         current.result.kind === 'journey' ? (
           <JourneyReport {...props} result={current.result} />
         ) : (
-          <ThemesReport {...props} result={current.result} />
+          <ThemesReport {...props} result={current.result} onUpdate={setAnalysis} />
         );
     } else {
       body = (

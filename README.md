@@ -173,6 +173,19 @@ L'onglet **Questions** de l'écran de résultat interroge les documents de l'ana
 - **Réponses fidèles** : uniquement à partir des extraits, « Les documents ne permettent pas de répondre à cette question. » sinon, chaque affirmation suivie de sa source `[[document | repère]]`. Les sources s'ouvrent comme celles de la synthèse ; un repère introuvable est signalé.
 - **Questions de suivi** : les trois derniers échanges sont rappelés au modèle. Les questions sont enregistrées avec l'analyse dans l'historique.
 
+### Approfondir un thème
+
+Sur une synthèse par thèmes terminée (y compris depuis l'Historique), **Approfondir ce thème** réécrit un seul
+thème en version « Très détaillé », sans relancer l'analyse :
+
+- **Passages du thème** : le corpus entier s'il tient dans la fenêtre du modèle ; sinon, les passages cités par
+  les points du thème, puis ceux que la recherche BM25 (celle des Questions) retrouve à partir de son intitulé,
+  de son résumé et de ses points.
+- **Rien de perdu** : un point de l'ancienne version dont un chiffre ou un nom propre a disparu est repris tel quel ;
+  l'intitulé, le verbatim et la nuance sont gardés si le modèle n'en donne pas d'autres.
+- **Retour possible** : « Revenir à la version précédente ». Un seul thème à la fois ; le reste de la synthèse ne
+  change pas. L'export suit, sauf si le texte exporté a été modifié à la main (il n'est jamais écrasé).
+
 ## 4. Tests de fidélité
 
 À lancer après toute modification des consignes, du code d'analyse ou du modèle utilisé, pour vérifier que rien n'a régressé.
@@ -215,6 +228,7 @@ La CI GitHub lance les trois : tests backend, tests de l'interface, tests de bou
 - `GET /api/v2/analyses/{id}/source?document=&location=&text=` : passage d'origine d'une source, lignes concernées surlignées
 - `GET /api/v2/analyses/{id}/export?format=md|docx|pdf`
 - `POST /api/v2/analyses/{id}/questions` puis `GET /api/v2/analyses/{id}/questions` : question sur les documents, réponse rédigée au fil de l'eau ; `DELETE` pour effacer les questions
+- `POST /api/v2/analyses/{id}/themes/{n}/deepen` : approfondit le thème n (à partir de 0), suivi par `deepening` dans `GET /api/v2/analyses/{id}` ; `POST …/themes/{n}/undo` revient à la version précédente ; `DELETE /api/v2/analyses/{id}/deepening` efface un échec
 
 ## 6. Historique et données
 
