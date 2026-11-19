@@ -70,7 +70,7 @@ def delete_document(doc_id: str) -> None:
 
 _ANALYSIS_FIELDS = ("id", "mode", "level", "model_id", "language", "cite", "status", "progress", "step", "preview",
                     "title", "result", "markdown", "error", "active_model_id", "batched", "questions",
-                    "markdown_edited", "vision_model_id", "error_settings")
+                    "markdown_edited", "vision_model_id", "error_settings", "deepening")
 
 
 def save_analysis(a: "Analysis") -> None:
@@ -114,6 +114,8 @@ def load_all() -> tuple[dict[str, "StoredDocument"], dict[str, "Analysis"]]:
             a.status = "failed"
             a.error = "L'analyse a été interrompue par un redémarrage du serveur. Relancez-la."
             save_analysis(a)
+        if a.deepening.get("status") == "running":  # approfondissement en cours au moment de l'arrêt
+            a.deepening.update(status="failed", error="Approfondissement interrompu par un redémarrage du serveur. Relancez-le.")
         for q in a.questions:
             if q.get("status") == "running":  # réponse en cours au moment de l'arrêt
                 q["status"], q["error"] = "failed", "Réponse interrompue par un redémarrage du serveur. Posez à nouveau la question."

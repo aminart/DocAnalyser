@@ -65,6 +65,15 @@ export const analysisApi = {
       body: JSON.stringify({ markdown }),
     }),
 
+  /** « Approfondir ce thème » : réécrit ce thème en version très détaillée (index à partir de 0). */
+  deepenTheme: (id: string, index: number) => request<Analysis>(`/analyses/${id}/themes/${index}/deepen`, { method: 'POST' }),
+
+  /** Revient à la version du thème d'avant l'approfondissement. */
+  undoDeepen: (id: string, index: number) => request<Analysis>(`/analyses/${id}/themes/${index}/undo`, { method: 'POST' }),
+
+  /** Efface le message d'un approfondissement échoué. */
+  dismissDeepening: (id: string) => request<Analysis>(`/analyses/${id}/deepening`, { method: 'DELETE' }),
+
   listAnalyses: () => request<AnalysisSummary[]>('/analyses'),
 
   async deleteAnalysis(id: string): Promise<void> {

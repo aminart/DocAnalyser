@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.services import analysis_service as svc
-from app.services import qa_service
+from app.services import deepen_service, qa_service
 from app.services import store
 from app.services.export_service import markdown_to_docx, markdown_to_pdf
 from app.services.source_lookup import passage
@@ -125,6 +125,37 @@ async def update_markdown(analysis_id: str, payload: MarkdownUpdate) -> dict:
         svc.set_markdown(analysis, payload.markdown)
     except svc.AnalysisError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return analysis.public()
+
+
+@router.post("/analyses/{analysis_id}/themes/{index}/deepen", status_code=202)
+async def deepen_theme(analysis_id: str, index: int) -> dict:
+    """« Approfondir ce thème » : réécrit ce thème en version très détaillée, le reste de la synthèse ne change pas."""
+    analysis = _get(analysis_id)
+    try:
+        deepen_service.deepen(analysis, index)
+    except deepen_service.DeepenError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except svc.AnalysisError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return analysis.public()
+
+
+@router.post("/analyses/{analysis_id}/themes/{index}/undo")
+async def undo_deepen(analysis_id: str, index: int) -> dict:
+    """Revient à la version du thème d'avant l'approfondissement."""
+    analysis = _get(analysis_id)
+    try:
+        deepen_service.undo(analysis, index)
+    except svc.AnalysisError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return analysis.public()
+
+
+@router.delete("/analyses/{analysis_id}/deepening")
+async def dismiss_deepening(analysis_id: str) -> dict:
+    analysis = _get(analysis_id)
+    deepen_service.dismiss(analysis)
     return analysis.public()
 
 

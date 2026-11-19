@@ -421,6 +421,8 @@ class Analysis:
     vision_model_id: str = ""  # modèle qui lit les images des documents ; vide = texte seul
     error_settings: bool = False  # l'échec se corrige dans les Réglages (clé, adresse, modèle)
     eta_at: float = 0.0  # fin estimée (horodatage time.time()), mesurée sur les premiers lots ; 0 = inconnue
+    # Thème en cours d'approfondissement (deepen_service) : {"theme", "title", "status", "error"} ; vide = aucun
+    deepening: dict[str, Any] = field(default_factory=dict)
 
     def step_details(self) -> list[str]:
         total_pages = sum(d.pages for d in self.documents)
@@ -477,6 +479,7 @@ class Analysis:
             "error": self.error,
             "error_settings": self.error_settings,
             "questions": self.questions,
+            "deepening": self.deepening or None,
             "markdown_edited": self.markdown_edited,
             "vision_model_id": self.vision_model_id,
             "eta_seconds": max(0, round(self.eta_at - time.time())) if self.status == "running" and self.eta_at else None,
