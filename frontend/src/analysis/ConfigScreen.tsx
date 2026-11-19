@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { analysisApi, MODELS_CHANGED } from './api';
 import { Analysis, AnalysisLevel, AnalysisMode, ModelInfo, UploadedDocument } from './types';
+import { formatRemaining } from './ProgressScreen';
 import { FileBadge, Icons, extOf, formatSize } from './ui';
 
 interface FileEntry {
@@ -27,6 +28,29 @@ export const countSelection = (text: string, last: number): number | null => {
     for (let i = Math.max(1, a); i <= Math.min(b, last); i++) pages.add(i);
   }
   return pages.size;
+};
+
+/**
+ * Sélection vérifiée comme le fait le serveur au lancement (parse_selection) : nombre de pages retenues,
+ * ou message à afficher sous le champ. Vide = tout le document.
+ */
+export const checkSelection = (
+  text: string,
+  last: number,
+  word: 'page' | 'slide' = 'page',
+): { count: number } | { error: string } | null => {
+  const parts = text.trim().replace(/\s*(?:-|–|à)\s*/g, '-').split(/[,;\s]+/).filter(Boolean);
+  if (!parts.length) return null;
+  const pages = new Set<number>();
+  for (const part of parts) {
+    const m = /^(\d*)-(\d*)$|^(\d+)$/.exec(part);
+    if (!m || part === '-') return { error: `« ${part} » n’est pas compris : écrivez par exemple 12-45, 80.` };
+    let [a, b] = m[3] ? [+m[3], +m[3]] : [+(m[1] || 1), +(m[2] || last)];
+    if (a > b) [a, b] = [b, a];
+    if (a < 1 || a > last) return { error: `La ${word} ${a} n’existe pas : le document va de 1 à ${last}.` };
+    for (let i = a; i <= Math.min(b, last); i++) pages.add(i);
+  }
+  return { count: pages.size };
 };
 
 export const MODES: {
@@ -103,6 +127,26 @@ const SectionTitle: React.FC<{ n: number; id: string; children: React.ReactNode;
     {right && <span className="ml-auto text-sm text-ink-muted">{right}</span>}
   </div>
 );
+
+/** Sous le champ « Pages à analyser » : pages retenues, ou ce qui n'est pas compris. */
+const SelectionHint: React.FC<{ entry: FileEntry }> = ({ entry }) => {
+  const doc = entry.doc!;
+  const word = doc.sections === 'pages' ? 'page' : 'slide';
+  const check = checkSelection(entry.selection ?? '', doc.last_section ?? doc.pages, word);
+  if (!check) return <span>ex. 12-45, 80</span>;
+  if ('error' in check)
+    return (
+      <span role="alert" className="font-medium text-danger-text">
+        {check.error}
+      </span>
+    );
+  return (
+    <span aria-live="polite">
+      {check.count} {word}
+      {check.count > 1 ? 's' : ''} retenue{check.count > 1 ? 's' : ''}
+    </span>
+  );
+};
 
 const Radio: React.FC<{ on: boolean }> = ({ on }) => (
   <span
@@ -223,7 +267,20 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
     return Math.min(all, countSelection(f.selection, f.doc.last_section ?? all) ?? all);
   };
   const totalPages = ready.reduce((n, f) => n + pagesOf(f), 0);
-  const eta = `≈ ${lvl.minutes + Math.floor(totalPages / 150)} min`;
+  // Estimation grossière avant lancement ; pendant l'analyse, le temps restant est mesuré sur les premiers lots.
+  // Un modèle sur ce poste (Ollama…) traite une requête à la fois et bien plus lentement qu'un modèle en ligne.
+  const localModel = !!selectedModel?.local;
+  const etaMinutes = localModel
+    ? lvl.minutes * 4 + Math.ceil(totalPages / 6)
+    : lvl.minutes + Math.floor(totalPages / 150);
+  const eta = formatRemaining(etaMinutes * 60);
+  const selectionErrors = ready
+    .map((f) => {
+      if (!f.selection?.trim() || !f.doc?.sections) return null;
+      const check = checkSelection(f.selection, f.doc.last_section ?? f.doc.pages, f.doc.sections === 'pages' ? 'page' : 'slide');
+      return check && 'error' in check ? f.name : null;
+    })
+    .filter((n): n is string => !!n);
 
   // Images des documents : lues seulement si un modèle qui voit les images est choisi (facultatif).
   const imageCount = ready.reduce((n, f) => n + (f.doc?.images ?? 0), 0);
@@ -238,16 +295,27 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
     }
   };
 
-  const canLaunch = ready.length > 0 && !uploading && !!selectedModel && !submitting && (!imagesOnly.length || !!vision);
-  const blocker = !ready.length
+  const canLaunch =
+    ready.length > 0 && !uploading && !!selectedModel && !submitting && (!imagesOnly.length || !!vision) && !selectionErrors.length;
+  const blocker: React.ReactNode = !ready.length
     ? 'Importez au moins un document.'
     : uploading
       ? 'Lecture des documents en cours…'
       : !selectedModel
-        ? 'Aucun modèle disponible : complétez backend/.env.'
+        ? (
+            <>
+              Aucun modèle disponible : ajoutez une connexion dans les{' '}
+              <a href="#/reglages" className="font-semibold text-accent underline">
+                Réglages
+              </a>
+              .
+            </>
+          )
         : imagesOnly.length && !vision
           ? `${imagesOnly.join(', ')} ne contient que des images : choisissez un modèle pour les lire.`
-          : null;
+          : selectionErrors.length
+            ? `Corrigez les pages à analyser de ${selectionErrors.join(', ')}.`
+            : null;
 
   const launch = async () => {
     if (!canLaunch || !selectedModel) return;
@@ -359,7 +427,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                             aria-label={`${f.doc.sections === 'pages' ? 'Pages' : 'Slides'} à analyser dans ${f.name}`}
                             className="min-h-[36px] w-[180px] rounded-lg border border-line-strong bg-surface px-3 text-sm text-ink placeholder:text-ink-muted"
                           />
-                          <span>ex. 12-45, 80</span>
+                          <SelectionHint entry={f} />
                         </label>
                       )}
                     </span>
@@ -661,7 +729,12 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
               {submitting ? 'Lancement…' : 'Analyser'}
               <Icons.arrow size={18} strokeWidth={2.2} />
             </button>
-            <p className="m-0 text-center text-[13px] text-ink-muted">{blocker ?? `Durée estimée : ${eta}`}</p>
+            <p className="m-0 text-center text-[13px] text-ink-muted">
+              {blocker ??
+                (localModel
+                  ? `Durée estimée : ${eta} avec un modèle sur ce poste (estimation large : le temps restant se précise une fois l’analyse lancée).`
+                  : `Durée estimée : ${eta}`)}
+            </p>
           </div>
         </aside>
       </div>

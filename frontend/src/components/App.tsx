@@ -4,6 +4,7 @@ import { ConfigScreen } from '../analysis/ConfigScreen';
 import { HistoryScreen } from '../analysis/HistoryScreen';
 import { JourneyReport } from '../analysis/JourneyReport';
 import { MarkdownEditor } from '../analysis/MarkdownEditor';
+import { APP_TITLE, finishedTitle, notifyFinished, runningTitle } from '../analysis/notify';
 import { ProgressScreen } from '../analysis/ProgressScreen';
 import { QuestionsPanel } from '../analysis/QuestionsPanel';
 import { SettingsScreen } from '../analysis/SettingsScreen';
@@ -52,6 +53,8 @@ export const App: React.FC = () => {
   const [lastId, setLastId] = useState<string | null>(readLast);
   const [questionCount, setQuestionCount] = useState(0);
   const [retrying, setRetrying] = useState(false);
+  // Analyse en cours suivie quel que soit l'écran affiché : titre de l'onglet et notification de fin.
+  const [watchId, setWatchId] = useState<string | null>(readLast);
 
   useEffect(() => {
     const onHash = () => setRoute(parseHash());
@@ -75,7 +78,10 @@ export const App: React.FC = () => {
         setAnalysis(a);
         setLastId(a.id);
         writeLast(a.id);
-        if (a.status === 'running') timer = window.setTimeout(tick, 1000);
+        if (a.status === 'running') {
+          setWatchId(a.id);
+          timer = window.setTimeout(tick, 1000);
+        }
       } catch (e) {
         if (!stopped) setLoadError(e instanceof Error ? e.message : 'Analyse introuvable.');
       }
@@ -93,7 +99,50 @@ export const App: React.FC = () => {
     setQuestionCount(current?.questions?.length ?? 0);
   }, [current?.id, current?.questions?.length]);
 
+  useEffect(() => {
+    if (!watchId) return;
+    let stopped = false;
+    let sawRunning = false;
+    let timer: number | undefined;
+    const tick = async () => {
+      let a: Analysis;
+      try {
+        a = await analysisApi.getAnalysis(watchId);
+      } catch {
+        if (!stopped) setWatchId(null); // analyse supprimée entre-temps
+        return;
+      }
+      if (stopped) return;
+      if (a.status === 'running') {
+        sawRunning = true;
+        document.title = runningTitle(a);
+        timer = window.setTimeout(tick, 3000);
+        return;
+      }
+      if (!sawRunning) {
+        setWatchId(null); // déjà terminée à l'ouverture de l'application : rien à signaler
+        return;
+      }
+      // Terminée : le titre le signale jusqu'au retour sur la page, la notification si elle est autorisée.
+      document.title = finishedTitle(a);
+      const reset = () => {
+        document.title = APP_TITLE;
+        window.removeEventListener('focus', reset);
+      };
+      if (document.hasFocus()) window.setTimeout(reset, 5000);
+      else window.addEventListener('focus', reset);
+      notifyFinished(a, () => go(`#/analyse/${a.id}${a.status === 'done' ? '/synthese' : ''}`));
+      setWatchId(null);
+    };
+    tick();
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+    };
+  }, [watchId]);
+
   const onLaunched = useCallback((a: Analysis) => {
+    if (a.status === 'running') setWatchId(a.id);
     setAnalysis(a);
     setLastId(a.id);
     writeLast(a.id);
@@ -235,11 +284,11 @@ export const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-bg font-sans text-[15px] leading-normal text-ink">
-      {showingProgress && current ? (
-        <AppHeader right={`${current.mode_label} · ${current.level_label} · ${modelLabel(current)}`} />
-      ) : (
-        <AppHeader {...nav} wide={route.screen === 'result' || route.screen === 'questions' || route.screen === 'text'} />
-      )}
+      <AppHeader
+        {...nav}
+        right={showingProgress && current ? `${current.mode_label} · ${current.level_label} · ${modelLabel(current)}` : undefined}
+        wide={route.screen === 'result' || route.screen === 'questions' || route.screen === 'text'}
+      />
 
       {/* La configuration reste montée pour conserver documents et choix entre deux analyses. */}
       <div hidden={route.screen !== 'config'}>

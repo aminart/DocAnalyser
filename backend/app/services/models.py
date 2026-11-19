@@ -180,6 +180,7 @@ def model_options() -> list[dict[str, Any]]:
             "economy": m.economy,
             "tier": m.tier,
             "configured": is_configured(m),
+            "local": m.provider.local,  # modèle sur ce poste (Ollama…) : bien plus lent
             "preferred": m.id == prefere,  # choisi pour DocAnalyser dans Studio Dock
         }
         for m in all_models()
