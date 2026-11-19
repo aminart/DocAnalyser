@@ -33,6 +33,18 @@ describe('MarkdownEditor', () => {
   });
 });
 
+describe('MarkdownEditor : brouillon', () => {
+  it('garde les modifications non enregistrées quand on change d’onglet', () => {
+    const other = { ...base, id: 'a2' } as Analysis;
+    const { unmount } = render(<MarkdownEditor analysis={other} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('Texte de la synthèse'), { target: { value: '# Brouillon' } });
+    unmount();
+    render(<MarkdownEditor analysis={other} onSaved={vi.fn()} />);
+    expect((screen.getByLabelText('Texte de la synthèse') as HTMLTextAreaElement).value).toBe('# Brouillon');
+    expect(screen.getByText(/modifications non enregistrées ont été gardées/)).toBeTruthy();
+  });
+});
+
 describe('formatRemaining', () => {
   it('écrit une durée lisible', () => {
     expect(formatRemaining(0)).toBe('presque terminé');

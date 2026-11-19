@@ -5,6 +5,28 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.7.0] — 2026-11-18
+
+### Ajouté
+
+- Suivi d'une longue analyse sans garder la page sous les yeux : l'onglet du navigateur affiche la progression
+  (« 42 % · Analyse en cours »), puis « Synthèse prête » ou « Analyse échouée ». « Me prévenir à la fin »
+  propose une notification du système, affichée seulement si DocAnalyser n'est pas au premier plan.
+- Sous « Pages à analyser » : nombre de pages retenues, ou ce qui n'est pas compris (« La page 400 n'existe
+  pas »). Le lancement attend une sélection lisible au lieu d'échouer après coup.
+- Après un échec dû à la connexion (clé refusée, modèle absent, adresse manquante ou serveur injoignable),
+  un bouton « Ouvrir les Réglages ».
+
+### Modifié
+
+- Le menu du haut reste affiché pendant l'analyse : on peut aller dans l'Historique ou préparer une autre
+  analyse, celle en cours continue.
+- Durée estimée avant le lancement adaptée aux modèles installés sur ce poste (Ollama…), bien plus lents.
+- « Annuler l'analyse » demande confirmation.
+- Texte exporté : les modifications non enregistrées sont gardées en changeant d'onglet, et fermer la page
+  demande confirmation.
+- Messages d'erreur de connexion : ils renvoient aux Réglages plutôt qu'à backend/.env.
+
 ## [2.6.0] — 2026-11-18
 
 ### Ajouté

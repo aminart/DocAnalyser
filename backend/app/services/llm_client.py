@@ -34,6 +34,10 @@ class ServiceUnavailableError(LLMError):
     """5xx, ou connexion impossible : surcharge ou indisponibilité."""
 
 
+class ConnectionFailedError(ServiceUnavailableError):
+    """Serveur injoignable (adresse erronée, Ollama non lancé)."""
+
+
 class TimeoutError(LLMError):  # noqa: A001 - nom explicite dans ce module
     """Pas de réponse dans le délai."""
 
@@ -189,7 +193,7 @@ async def _send(client: httpx.AsyncClient, url: str, headers: dict[str, str], pa
     except httpx.TimeoutException as exc:
         raise TimeoutError(f"délai dépassé ({exc.__class__.__name__})") from exc
     except httpx.ConnectError as exc:
-        raise ServiceUnavailableError(f"connexion impossible à {url} : {exc}") from exc
+        raise ConnectionFailedError(f"connexion impossible à {url} : {exc}") from exc
     except httpx.HTTPError as exc:
         raise ServiceUnavailableError(f"erreur réseau : {exc}") from exc
 

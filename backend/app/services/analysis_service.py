@@ -32,7 +32,7 @@ from typing import Any, Callable, Literal
 
 from app.core.config import settings
 from app.services import image_reader, llm_client, store
-from app.services.errors import AnalysisError, InvalidModelOutput, ProviderUnavailable
+from app.services.errors import AnalysisError, InvalidModelOutput, ProviderUnavailable, SettingsProblem
 from app.services.models import (  # noqa: F401 : réexportés, utilisés via analysis_service ailleurs
     APP_ID, ENV_PROVIDERS, STUDIODOCK, ModelSpec, ProviderConf, all_models, connexions_studiodock, fallback_chain, get_model,
     is_configured, model_options, providers,
@@ -79,7 +79,7 @@ async def _complete(
     """
     prov = spec.provider
     if not prov.api_base:
-        raise AnalysisError(f"{prov.key}_API_BASE n'est pas renseignée dans backend/.env")
+        raise SettingsProblem(f"L'adresse de la connexion « {prov.name} » n'est pas renseignée : complétez-la dans les Réglages.")
     # Claude ne gère pas la sortie JSON imposée : la consigne exige déjà un JSON strict.
     json_mode = want_json and prov.kind != "anthropic"
 
@@ -168,7 +168,7 @@ def _friendly_error(spec: ModelSpec, exc: Exception) -> str:
         return (f"Quota du fournisseur dépassé pour {spec.name} (limite atteinte). "
                 "Réessayez plus tard ou choisissez un autre modèle.")
     if isinstance(exc, llm_client.AuthenticationError):
-        return f"La clé API du fournisseur « {spec.provider.name} » a été refusée : vérifiez {spec.provider.key}_API_KEY dans backend/.env."
+        return f"La clé API de la connexion « {spec.provider.name} » a été refusée : vérifiez-la dans les Réglages."
     if isinstance(exc, llm_client.NotFoundError):
         return f"Le modèle {spec.name} n'est pas disponible chez le fournisseur ({reason})."
     if isinstance(exc, llm_client.ServiceUnavailableError):
@@ -419,6 +419,7 @@ class Analysis:
     questions: list[dict[str, Any]] = field(default_factory=list)  # questions posées sur les documents (qa_service)
     markdown_edited: bool = False  # texte exporté modifié à la main après l'analyse
     vision_model_id: str = ""  # modèle qui lit les images des documents ; vide = texte seul
+    error_settings: bool = False  # l'échec se corrige dans les Réglages (clé, adresse, modèle)
     eta_at: float = 0.0  # fin estimée (horodatage time.time()), mesurée sur les premiers lots ; 0 = inconnue
 
     def step_details(self) -> list[str]:
@@ -474,6 +475,7 @@ class Analysis:
             "result": self.result,
             "markdown": self.markdown,
             "error": self.error,
+            "error_settings": self.error_settings,
             "questions": self.questions,
             "markdown_edited": self.markdown_edited,
             "vision_model_id": self.vision_model_id,
@@ -509,7 +511,8 @@ def create_analysis(
         raise AnalysisError(f"Niveau inconnu : {level}")
     spec = get_model(model_id)
     if not is_configured(spec):
-        raise AnalysisError(f"{spec.provider.key}_API_BASE n'est pas renseignée dans backend/.env pour {spec.name}.")
+        raise SettingsProblem(f"L'adresse de la connexion « {spec.provider.name} » n'est pas renseignée pour {spec.name} : "
+                              "complétez-la dans les Réglages.")
     docs = []
     for doc_id in document_ids:
         doc = DOCUMENTS.get(doc_id)
@@ -642,9 +645,11 @@ async def _call(
                 raise
             except Exception as exc:
                 logger.warning("Appel à %s refusé : %s", spec.name, exc)  # détail complet dans la console du backend
-                raise AnalysisError(_friendly_error(spec, exc)) from exc
+                settings = isinstance(exc, (llm_client.AuthenticationError, llm_client.NotFoundError))
+                raise (SettingsProblem if settings else AnalysisError)(_friendly_error(spec, exc)) from exc
     raise ProviderUnavailable(_friendly_error(chain[-1] if len(chain) > 1 else chain[0], last or Exception()),
-                              timed_out=isinstance(last, llm_client.TimeoutError))
+                              timed_out=isinstance(last, llm_client.TimeoutError),
+                              settings=isinstance(last, llm_client.ConnectionFailedError))
 
 
 def _enter(analysis: Analysis, step: int) -> None:
@@ -714,6 +719,7 @@ async def _run(analysis: Analysis, spec: ModelSpec) -> None:
         analysis.status = "cancelled"
     except AnalysisError as exc:
         analysis.status, analysis.error = "failed", str(exc)
+        analysis.error_settings = isinstance(exc, SettingsProblem) or getattr(exc, "settings", False)
     except Exception as exc:  # erreur inattendue
         analysis.status, analysis.error = "failed", f"Erreur inattendue : {str(exc)[:300]}"
     finally:

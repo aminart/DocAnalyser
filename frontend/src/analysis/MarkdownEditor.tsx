@@ -2,23 +2,52 @@ import React, { useEffect, useState } from 'react';
 import { analysisApi } from './api';
 import { Analysis } from './types';
 
+/**
+ * Brouillons non enregistrés, par analyse : changer d'onglet (Synthèse, Questions) ne les perd pas.
+ * Gardés le temps de la session de l'application ; fermer la page avec un brouillon demande confirmation.
+ */
+const drafts = new Map<string, string>();
+
 /** Modification du texte de la synthèse avant export (Markdown, Word, PDF). */
 export const MarkdownEditor: React.FC<{ analysis: Analysis; onSaved: (a: Analysis) => void }> = ({ analysis, onSaved }) => {
-  const [text, setText] = useState(analysis.markdown);
+  const [text, setTextState] = useState(() => drafts.get(analysis.id) ?? analysis.markdown);
+  const [restored, setRestored] = useState(() => drafts.has(analysis.id));
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ tone: 'ok' | 'error'; msg: string } | null>(null);
 
-  useEffect(() => setText(analysis.markdown), [analysis.id, analysis.markdown]);
+  const setText = (value: string) => {
+    setTextState(value);
+    if (value === analysis.markdown) drafts.delete(analysis.id);
+    else drafts.set(analysis.id, value);
+  };
+
+  useEffect(() => {
+    setTextState(drafts.get(analysis.id) ?? analysis.markdown);
+    setRestored(drafts.has(analysis.id));
+  }, [analysis.id, analysis.markdown]);
 
   const changed = text !== analysis.markdown;
+
+  // Fermer ou recharger la page avec des modifications non enregistrées : le navigateur demande confirmation.
+  useEffect(() => {
+    if (!changed) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [changed]);
 
   const save = async (markdown: string | null) => {
     setBusy(true);
     setStatus(null);
     try {
       const updated = await analysisApi.updateMarkdown(analysis.id, markdown);
+      drafts.delete(analysis.id);
+      setRestored(false);
       onSaved(updated);
-      setText(updated.markdown);
+      setTextState(updated.markdown);
       setStatus({ tone: 'ok', msg: markdown === null ? 'Texte d’origine rétabli.' : 'Modifications enregistrées.' });
     } catch (e) {
       setStatus({ tone: 'error', msg: e instanceof Error ? e.message : 'Enregistrement impossible.' });
@@ -34,6 +63,11 @@ export const MarkdownEditor: React.FC<{ analysis: Analysis; onSaved: (a: Analysi
         La synthèse affichée dans l’onglet « Synthèse » ne change pas. Mise en forme : <code># Titre</code>,{' '}
         <code>## Sous-titre</code>, <code>- élément de liste</code>, <code>**gras**</code>.
       </p>
+      {restored && changed && (
+        <p role="status" className="m-0 rounded-lg bg-warning-soft px-3 py-2 text-sm text-warning-text">
+          Vos modifications non enregistrées ont été gardées. Enregistrez-les pour qu’elles passent dans les exports.
+        </p>
+      )}
       <label htmlFor="md-text" className="sr-only">
         Texte de la synthèse
       </label>
@@ -57,7 +91,10 @@ export const MarkdownEditor: React.FC<{ analysis: Analysis; onSaved: (a: Analysi
           <button
             type="button"
             disabled={busy}
-            onClick={() => setText(analysis.markdown)}
+            onClick={() => {
+              setText(analysis.markdown);
+              setRestored(false);
+            }}
             className="inline-flex min-h-11 items-center rounded-[10px] border border-line-strong bg-surface px-5 font-semibold text-ink hover:bg-bg"
           >
             Annuler les modifications

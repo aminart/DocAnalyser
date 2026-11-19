@@ -15,6 +15,8 @@ export interface ModelInfo {
   configured: boolean;
   /** Modèle choisi pour DocAnalyser dans Studio Dock : proposé d'office. */
   preferred?: boolean;
+  /** Modèle sur ce poste (Ollama, LM Studio…) : bien plus lent qu'un modèle en ligne. */
+  local?: boolean;
 }
 
 export interface UploadedDocument {
@@ -206,6 +208,8 @@ export interface Analysis {
   /** Durée restante estimée (secondes), mesurée sur les premiers lots ; null si inconnue. */
   eta_seconds?: number | null;
   error: string | null;
+  /** L'échec se corrige dans les Réglages (clé refusée, adresse manquante ou injoignable, modèle absent). */
+  error_settings?: boolean;
   questions?: Question[];
 }
 
