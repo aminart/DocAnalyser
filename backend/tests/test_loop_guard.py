@@ -76,3 +76,44 @@ def test_activite_du_modele_affichee(monkeypatch):
     assert a.public()["activity"]["phase"] == "writing"
     a.status = "done"
     assert a.public()["activity"] is None
+
+
+def test_fusion_des_doublons_paquet_par_paquet_et_paquet_en_echec_garde(monkeypatch):
+    """Mode Parcours : la fusion progresse paquet par paquet ; un paquet qui échoue est gardé tel quel."""
+    from app.services import batch_pipeline
+
+    items = [batch_pipeline.Item(f"e{i}", "fait", f"Constat {i} " + "y" * 60, "cr.txt", f"L{i}") for i in range(12)]
+    calls = []
+
+    async def fake_extract(analysis, chain, checker):
+        return list(items), [], 3
+
+    async def fake_call_json(analysis, chain, system_prompt, user, **kw):
+        if system_prompt == batch_pipeline.MERGE_PROMPT:
+            calls.append(user)
+            if len(calls) == 1:
+                raise svc.InvalidModelOutput("boucle")
+            lines = user.splitlines()
+            return {"items": [{"kind": "fait", "text": l.split(") ", 1)[1], "document": "cr.txt", "location": "L"}
+                              for l in lines[: max(1, len(lines) // 3)]]}
+        if "phases" in system_prompt or "parcours" in system_prompt.lower():
+            return {"title": "T", "phases": [{"name": "Étape"}]}
+        return {"title": "T", "phases": [{"name": "Étape"}]}
+
+    monkeypatch.setattr(batch_pipeline, "extract", fake_extract)
+    monkeypatch.setattr(svc, "_call_json", fake_call_json)
+    monkeypatch.setattr(batch_pipeline, "budget_chars", lambda spec, cap=0: 900)
+    monkeypatch.setattr(batch_pipeline, "EXTRACT_SHARE", 0.4)
+    a = svc.Analysis("f1", "flow", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    asyncio.run(batch_pipeline.run_flow(a, [_spec()], svc.QuoteChecker("")))
+    first = calls[0]
+    assert len(calls) >= 3  # plusieurs paquets, l'échec du premier n'arrête pas l'analyse
+    assert "fusion des doublons" in a.step_notes[1] and "fusionné" in a.step_notes[1]
+    assert a.eta_at > 0
+
+    # Reprise : les paquets déjà fusionnés sont relus sur le disque, seul celui qui avait échoué est redemandé.
+    calls.clear()
+    calls.append("déjà un appel")  # le prochain appel ne simule plus d'échec
+    a2 = svc.Analysis("f2", "flow", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    asyncio.run(batch_pipeline.run_flow(a2, [_spec()], svc.QuoteChecker("")))
+    assert calls[1] == first

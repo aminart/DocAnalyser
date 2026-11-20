@@ -651,7 +651,31 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
     budget = budget_chars(chain[0], analysis.context_cap)
     doc_names = [d.name for d in analysis.documents]
 
-    # Dédoublonnage par paquets tant que la liste ne tient pas dans la fenêtre.
+    # Dédoublonnage par paquets tant que la liste ne tient pas dans la fenêtre. Le modèle y recopie chaque paquet
+    # presque en entier : c'est long sur un modèle local, d'où la progression paquet par paquet, la durée restante
+    # recalculée, les paquets gardés sur le disque (reprise) et un paquet laissé tel quel s'il échoue.
+    merged_done, started = 0, time.monotonic()
+
+    async def merge_one(k: int, total: int, rnd: int, part: list[Item], user: str) -> dict[str, Any]:
+        nonlocal merged_done
+        key = _lot_key(chain[0], MERGE_PROMPT, user)
+        out = _lot_load(key)
+        if out is None:
+            try:
+                out = await svc._call_json(analysis, chain, MERGE_PROMPT, user)
+                _lot_save(key, out)
+            except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+                # Les doublons de ce paquet restent : la suite du parcours les regroupe de toute façon.
+                logger.warning("Fusion des doublons : paquet %s/%s gardé tel quel (%s)", k, total, exc)
+                out = {"items": [{"kind": it.kind, "text": it.text, "speaker": it.speaker, "document": it.document,
+                                  "location": it.location} for it in part]}
+            merged_done += 1
+            per_part = (time.monotonic() - started) / merged_done
+            analysis.eta_at = time.time() + per_part * ((total - k) + 2)  # + plan et rédaction du parcours
+        analysis.step_notes[1] = (f"{n_batches} lots extraits · fusion des doublons (passe {rnd}) · "
+                                  f"paquet {k}/{total} fusionné")
+        return out
+
     rounds = 0
     while len("\n".join(i.line() for i in items)) > budget * 0.7:
         rounds += 1
@@ -659,9 +683,10 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
             raise svc.AnalysisError("Le parcours décrit est trop volumineux pour ce modèle : choisissez un modèle à plus grande fenêtre.")
         lines = [i.line() for i in items]
         groups = _group(lines, int(budget * EXTRACT_SHARE))
-        analysis.step_notes[1] = f"{n_batches} lots extraits · fusion des doublons (passe {rounds})"
+        analysis.step_notes[1] = f"{n_batches} lots extraits · fusion des doublons (passe {rounds}, {len(groups)} paquets)"
         results = await _gather_limited([
-            svc._call_json(analysis, chain, MERGE_PROMPT, "\n".join(lines[i] for i in g)) for g in groups
+            merge_one(k, len(groups), rounds, [items[i] for i in g], "\n".join(lines[i] for i in g))
+            for k, g in enumerate(groups, start=1)
         ], svc.concurrency(chain[0]))
         merged: list[Item] = []
         for raw_out in results:

@@ -14,6 +14,10 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
   qui écrit encore n'était jamais arrêté.
 - Longueur de réponse plafonnée pour un modèle local (`LOCAL_MAX_OUTPUT_TOKENS`, 16 000 tokens par défaut) si
   la connexion n'en fixe pas : une réponse plus longue est demandée en plusieurs parties.
+- Mode Parcours, « fusion des doublons » : le modèle y recopie chaque paquet d'éléments presque en entier, ce qui
+  est très long sur un modèle local. La progression s'affiche paquet par paquet, la durée restante est
+  recalculée, les paquets fusionnés sont gardés pour « Reprendre l'analyse », et un paquet qui échoue (réponse en
+  boucle, délai dépassé) est gardé tel quel au lieu d'arrêter l'analyse.
 - Temps restant : une fois l'estimation dépassée, l'écran indique « plus long que prévu » au lieu de
   « presque terminé ».
 
