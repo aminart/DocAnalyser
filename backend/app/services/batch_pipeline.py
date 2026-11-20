@@ -439,7 +439,11 @@ async def classify(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: li
         if len(leftovers) <= max(10, MAX_OTHER_SHARE * len(items)) or round_ == MAX_THEME_ROUNDS:
             break
         # Trop d'éléments sans thème : de nouveaux thèmes sont dégagés à partir de ces éléments.
-        _, extra = await _propose_themes(analysis, chain, "\n".join(i.line() for i in leftovers), themes)
+        try:
+            _, extra = await _propose_themes(analysis, chain, "\n".join(i.line() for i in leftovers), themes)
+        except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+            logger.warning("Thèmes supplémentaires non proposés (%s) : les éléments restants vont dans « Autres points »", exc)
+            extra = []
         if not extra:
             break
         themes += extra
@@ -540,9 +544,15 @@ async def write_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], theme
                 + (f"\n\nPassages d'origine :\n{passages}" if passages else ""))
         try:
             async with sem:
-                return [await svc._call_json(analysis, chain, prompt, user)]
-        except svc.ProviderUnavailable:
-            raise  # fournisseur indisponible : inutile de redécouper
+                return [await _cached_call_json(analysis, chain, prompt, user)]
+        except svc.ProviderUnavailable as exc:
+            if not exc.timed_out:
+                raise  # fournisseur indisponible : inutile de redécouper
+            # Délai dépassé (modèle local lent sur une grosse partie) : redécoupe, comme pour une réponse illisible.
+            if len(part) > 1:
+                half = len(part) // 2
+                return await write_part(theme, part[:half], label) + await write_part(theme, part[half:], label)
+            return [{"theme": {"points": [_as_point(part[0])]}, "raw": True}]
         except svc.AnalysisError:
             if len(part) > 1:  # requête refusée ou réponse illisible : on redécoupe
                 half = len(part) // 2
@@ -685,7 +695,12 @@ async def assemble(analysis: svc.Analysis, chain: list[svc.ModelSpec], title: st
         _lang(analysis.language),
         'Schéma JSON attendu : {"title": "titre court et explicite", "brief": "…"}',
     ])
-    head = await svc._call_json(analysis, chain, prompt, digest)
+    try:
+        head = await _cached_call_json(analysis, chain, prompt, digest)
+    except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+        # Titre et « En bref » seulement : les thèmes rédigés ne sont pas perdus pour autant.
+        logger.warning("Titre et « En bref » non rédigés (%s)", exc)
+        head = {}
     actions, seen = [], set()
     for n, t in enumerate(written, start=1):
         for a in t.pop("actions", []):
@@ -788,7 +803,7 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
               + "\n".join(i.line() for i in items))
     svc._enter(analysis, 2)
     outline = await svc._with_creep(
-        analysis, 60, svc._call_json(analysis, chain, svc._outline_prompt("flow", analysis.level, analysis.language), corpus))
+        analysis, 60, _cached_call_json(analysis, chain, svc._outline_prompt("flow", analysis.level, analysis.language), corpus))
     names = [svc._s(p.get("name")) for p in outline.get("phases") or [] if isinstance(p, dict) and svc._s(p.get("name"))]
     analysis.preview += names
     svc._enter(analysis, 3)
@@ -796,7 +811,7 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
             + "\n".join(f"{i + 1}. {n}" for i, n in enumerate(names)) + "\n\n" + corpus)
     data = await svc._with_creep(
         analysis, 90,
-        svc._call_json(analysis, chain, svc._full_prompt("flow", analysis.level, analysis.language, analysis.cite), user))
+        _cached_call_json(analysis, chain, svc._full_prompt("flow", analysis.level, analysis.language, analysis.cite), user))
     svc._enter(analysis, 4)
     data.setdefault("title", svc._s(outline.get("title")))
     missing = uncovered(items, data)

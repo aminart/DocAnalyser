@@ -150,3 +150,50 @@ def test_classement_qui_invente_des_elements_interrompu_et_repris(monkeypatch):
     a2 = svc.Analysis("c2", "global", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
     asyncio.run(batch_pipeline.classify(a2, [_spec()], items, ["sujet"]))
     assert len(calls) == n  # tout est relu sur le disque
+
+
+def test_redaction_d_un_theme_en_delai_depasse_redecoupee_puis_reprise(monkeypatch):
+    from app.services import batch_pipeline
+
+    items = [batch_pipeline.Item(f"e{i}", "fait", f"Constat {i}", "cr.txt", f"L{i}") for i in range(1, 5)]
+    calls = []
+
+    async def fake_call_json(analysis, chain, system_prompt, user, **kw):
+        calls.append(user)
+        if user.count("[fait]") > 1:
+            raise svc.ProviderUnavailable("délai dépassé", timed_out=True)
+        return {"summary": "", "points": [{"lead": user.split("[fait] (cr.txt ")[1].split(")")[1].strip()}]}
+
+    monkeypatch.setattr(svc, "_call_json", fake_call_json)
+    a = svc.Analysis("w1", "global", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    themes = [{"title": "A", "scope": "tout", "items": items}]
+    written = asyncio.run(batch_pipeline.write_themes(a, [_spec()], themes))
+    assert len(written) == 1  # le délai dépassé n'arrête pas l'analyse : partie redécoupée
+    n = len(calls)
+    asyncio.run(batch_pipeline.write_themes(a, [_spec()], themes))
+    assert len(calls) == n + 3  # reprise : les 4 parties rédigées sont relues, seules les 3 en délai dépassé sont redemandées
+
+
+def test_titre_et_en_bref_en_echec_n_arretent_pas_l_analyse(monkeypatch):
+    from app.services import batch_pipeline
+
+    async def fake_call_json(*a, **kw):
+        raise svc.InvalidModelOutput("boucle")
+
+    monkeypatch.setattr(svc, "_call_json", fake_call_json)
+    a = svc.Analysis("w2", "global", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    data = asyncio.run(batch_pipeline.assemble(a, [_spec()], "Titre des thèmes", [{"title": "A", "summary": "s"}]))
+    assert data["title"] == "Titre des thèmes" and data["brief"] == ""
+
+
+def test_transcription_d_image_en_boucle_interrompue(monkeypatch):
+    from app.services import vision_service
+
+    line = "Le même texte lu sur l'image, répété indéfiniment par le modèle de vision.\n"
+
+    def handler(request):
+        return httpx.Response(200, text=_sse(*([line] * 400)), headers={"content-type": "text/event-stream"})
+
+    _install(monkeypatch, handler)
+    with pytest.raises(InvalidModelOutput):
+        asyncio.run(vision_service._read_one(_spec(), b"img", "Image : x"))

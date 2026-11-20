@@ -22,6 +22,10 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
   des éléments inexistants sans s'arrêter est interrompu ; un paquet en échec n'arrête plus l'analyse (ses
   éléments sont redemandés, sinon rangés dans « Autres points ») ; progression paquet par paquet et durée
   restante recalculée ; choix des thèmes et paquets classés gardés pour « Reprendre l'analyse ».
+- Toutes les phases revues : rédaction d'un thème en délai dépassé redécoupée au lieu d'arrêter l'analyse ;
+  titre et « En bref » en échec n'arrêtent plus l'analyse ; thèmes supplémentaires en échec rangés dans
+  « Autres points » ; parties rédigées, titre, plan et rédaction du parcours gardés pour la reprise ;
+  transcription d'image en boucle interrompue (longueur plafonnée aussi pour le modèle de vision).
 - Temps restant : une fois l'estimation dépassée, l'écran indique « plus long que prévu » au lieu de
   « presque terminé ».
 
