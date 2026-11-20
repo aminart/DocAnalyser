@@ -38,14 +38,17 @@ MAX_MERGE_ROUNDS = 4
 THEME_KINDS = "fait | chiffre | decision | action | friction | attente | desaccord | verbatim"
 FLOW_KINDS = THEME_KINDS + " | etape | transition | sortie | ressenti | point_de_contact"
 
-KIND_HINTS = {
-    "themes": "",
-    "flow": (
-        "Pour le parcours, extrais aussi : « etape » (ce que fait l'utilisateur), « transition » (passage d'une "
-        "étape à une autre, avec sa condition), « sortie » (abandon, point de rupture), « ressenti » (émotion "
-        "exprimée), « point_de_contact » (canal, écran, interlocuteur)."
-    ),
-}
+# Extraction commune à tous les modes : les lots extraits resservent quand on relance l'analyse dans un autre
+# mode (Parcours après Synthèse globale, par exemple). Les types propres au parcours servent aussi de repères
+# aux thèmes ; le mode choisi n'intervient qu'au classement et à la rédaction.
+EXTRACT_KINDS = FLOW_KINDS
+EXTRACT_HINT = (
+    "Les éléments serviront aussi bien à une synthèse par thèmes qu'à la reconstitution d'un parcours utilisateur : "
+    "relève les faits, chiffres, décisions, actions annoncées, frictions, attentes, désaccords et verbatims, et "
+    "aussi, quand l'extrait en parle : « etape » (ce que fait l'utilisateur), « transition » (passage d'une étape "
+    "à une autre, avec sa condition), « sortie » (abandon, point de rupture), « ressenti » (émotion exprimée), "
+    "« point_de_contact » (canal, écran, interlocuteur)."
+)
 
 
 def window_tokens(spec: svc.ModelSpec, cap: int = 0) -> int:
@@ -163,7 +166,32 @@ def _lot_purge() -> None:
 # 1. Extraction
 # ---------------------------------------------------------------------------
 
-def _extract_prompt(mode: str, language: str) -> str:
+def _extract_prompt(language: str) -> str:
+    """Consigne d'extraction d'un lot, identique quel que soit le mode (voir EXTRACT_HINT)."""
+    return "\n\n".join([
+        svc.BASE_RULES,
+        "Tu traites une partie d'un corpus trop long pour être lu d'un seul tenant. Extrais de cet extrait TOUS les "
+        "éléments utiles à la compréhension du sujet, sans en omettre aucun, y compris en fin d'extrait. Chaque "
+        "élément reprend fidèlement le contenu (pas d'interprétation, pas de généralisation) et indique son document "
+        "et le repère exact de la ligne d'origine. Les verbatims sont recopiés mot pour mot.",
+        EXTRACT_HINT,
+        _lang(language),
+        'Schéma JSON attendu :\n{\n  "items": [\n    {"kind": "' + EXTRACT_KINDS + '", "text": "contenu fidèle", '
+        '"speaker": "qui parle (verbatim) ou chaîne vide", "document": "nom exact du document", '
+        '"location": "repère exact (L12, §4, Page 3, Slide 2, 00:01:10)"}\n  ],\n'
+        '  "topics": ["sujets abordés dans cet extrait (3 à 6 mots)"]\n}',
+    ])
+
+
+_LEGACY_FLOW_HINT = (
+    "Pour le parcours, extrais aussi : « etape » (ce que fait l'utilisateur), « transition » (passage d'une "
+    "étape à une autre, avec sa condition), « sortie » (abandon, point de rupture), « ressenti » (émotion "
+    "exprimée), « point_de_contact » (canal, écran, interlocuteur)."
+)
+
+
+def _legacy_extract_prompt(mode: str, language: str) -> str:
+    """Consigne d'extraction jusqu'à la 2.8.0 (une par mode) : relit les lots déjà extraits avant la mise à jour."""
     kinds = FLOW_KINDS if mode == "flow" else THEME_KINDS
     return "\n\n".join([
         svc.BASE_RULES,
@@ -172,7 +200,7 @@ def _extract_prompt(mode: str, language: str) -> str:
         "éléments utiles à la compréhension du sujet, sans en omettre aucun, y compris en fin d'extrait. Chaque "
         "élément reprend fidèlement le contenu (pas d'interprétation, pas de généralisation) et indique son document "
         "et le repère exact de la ligne d'origine. Les verbatims sont recopiés mot pour mot.",
-        KIND_HINTS["flow" if mode == "flow" else "themes"],
+        _LEGACY_FLOW_HINT if mode == "flow" else "",
         _lang(language),
         'Schéma JSON attendu :\n{\n  "items": [\n    {"kind": "' + kinds + '", "text": "contenu fidèle", '
         '"speaker": "qui parle (verbatim) ou chaîne vide", "document": "nom exact du document", '
@@ -189,7 +217,7 @@ async def extract(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: s
     segments = [b.to_prompt_segment() for d in analysis.documents for b in d.blocks]
     groups = _group(segments, int(budget_chars(chain[0], analysis.context_cap) * EXTRACT_SHARE))
     doc_names = [d.name for d in analysis.documents]
-    prompt = _extract_prompt(analysis.mode, analysis.language)
+    prompt = _extract_prompt(analysis.language)
     done = resumed = 0
     _lot_purge()
     started = time.monotonic()
@@ -202,6 +230,12 @@ async def extract(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: s
         user = "Extrait du corpus :\n\n" + "\n".join(segments[i] for i in idx)
         key = _lot_key(chain[0], prompt, user)
         cached = _lot_load(key)
+        if cached is None:
+            # Lot extrait avant la 2.8.1 dans le même mode (ou en Parcours, qui relève tous les types).
+            for mode in dict.fromkeys((analysis.mode, "flow")):
+                cached = _lot_load(_lot_key(chain[0], _legacy_extract_prompt(mode, analysis.language), user))
+                if cached is not None:
+                    break
         if cached is not None:
             return {**cached, "_resumed": True}
         try:

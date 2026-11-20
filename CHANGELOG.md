@@ -23,6 +23,10 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ### Ajouté
 
+- Les lots déjà extraits resservent quand on relance l'analyse des mêmes documents dans un autre mode (Parcours
+  après Synthèse globale, Transcription après Notes…) : l'extraction est désormais commune à tous les modes, qui
+  n'interviennent qu'au classement et à la rédaction. Les lots extraits avant cette version sont relus dans le
+  même mode. Changer de modèle, de langue ou de pages à analyser refait l'extraction.
 - Pendant l'analyse, sous l'étape en cours : ce que fait le modèle (« lit la demande depuis 4 min », « écrit :
   12 300 caractères reçus en 2 min »), pour distinguer un lot long d'un lot bloqué.
 
