@@ -5,6 +5,39 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.8.1] — 2026-11-20
+
+### Corrigé
+
+- Modèle local (Ollama) qui se met à répéter le même passage en boucle : la réponse est interrompue, redemandée
+  une fois, puis le lot est coupé en deux. Avant, l'analyse restait bloquée sans fin sur ce lot, car un modèle
+  qui écrit encore n'était jamais arrêté.
+- Longueur de réponse plafonnée pour un modèle local (`LOCAL_MAX_OUTPUT_TOKENS`, 16 000 tokens par défaut) si
+  la connexion n'en fixe pas : une réponse plus longue est demandée en plusieurs parties.
+- Mode Parcours, « fusion des doublons » : le modèle y recopie chaque paquet d'éléments presque en entier, ce qui
+  est très long sur un modèle local. La progression s'affiche paquet par paquet, la durée restante est
+  recalculée, les paquets fusionnés sont gardés pour « Reprendre l'analyse », et un paquet qui échoue (réponse en
+  boucle, délai dépassé) est gardé tel quel au lieu d'arrêter l'analyse.
+- « Identification des grands thèmes » (analyse par lots) : un paquet de classement dont la réponse numérote
+  des éléments inexistants sans s'arrêter est interrompu ; un paquet en échec n'arrête plus l'analyse (ses
+  éléments sont redemandés, sinon rangés dans « Autres points ») ; progression paquet par paquet et durée
+  restante recalculée ; choix des thèmes et paquets classés gardés pour « Reprendre l'analyse ».
+- Toutes les phases revues : rédaction d'un thème en délai dépassé redécoupée au lieu d'arrêter l'analyse ;
+  titre et « En bref » en échec n'arrêtent plus l'analyse ; thèmes supplémentaires en échec rangés dans
+  « Autres points » ; parties rédigées, titre, plan et rédaction du parcours gardés pour la reprise ;
+  transcription d'image en boucle interrompue (longueur plafonnée aussi pour le modèle de vision).
+- Temps restant : une fois l'estimation dépassée, l'écran indique « plus long que prévu » au lieu de
+  « presque terminé ».
+
+### Ajouté
+
+- Les lots déjà extraits resservent quand on relance l'analyse des mêmes documents dans un autre mode (Parcours
+  après Synthèse globale, Transcription après Notes…) : l'extraction est désormais commune à tous les modes, qui
+  n'interviennent qu'au classement et à la rédaction. Les lots extraits avant cette version sont relus dans le
+  même mode. Changer de modèle, de langue ou de pages à analyser refait l'extraction.
+- Pendant l'analyse, sous l'étape en cours : ce que fait le modèle (« lit la demande depuis 4 min », « écrit :
+  12 300 caractères reçus en 2 min »), pour distinguer un lot long d'un lot bloqué.
+
 ## [2.8.0] — 2026-11-19
 
 ### Ajouté

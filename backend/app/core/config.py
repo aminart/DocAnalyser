@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # Réponses reçues au fil de l'eau : délai maximal sans aucun nouveau morceau pour un modèle local (le premier
     # morceau arrive après la lecture du lot). Un modèle qui écrit encore n'est jamais coupé.
     LOCAL_STREAM_TIMEOUT_SECONDS: int = 600
+    # Longueur maximale d'une réponse d'un modèle local (tokens), si la connexion n'en fixe pas : sans plafond,
+    # Ollama laisse un modèle qui tourne en boucle écrire indéfiniment. Une réponse plus longue est demandée en
+    # plusieurs parties. 0 = pas de plafond.
+    LOCAL_MAX_OUTPUT_TOKENS: int = 16_000
     # Modèles qui « réfléchissent » avant de répondre (Qwen, DeepSeek R1…) : réflexion désactivée quand c'est
     # possible, car elle ajoute des milliers de mots par lot sans améliorer une extraction fidèle.
     DISABLE_THINKING: bool = True

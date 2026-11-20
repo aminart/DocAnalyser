@@ -47,6 +47,12 @@ def _prefix(ref: dict[str, Any]) -> str:
     return PREFIX["embedded"]
 
 
+def _stop_if_looping(text: str) -> None:
+    """Transcription d'image qui répète le même passage sans fin : interrompue (l'image est comptée en échec)."""
+    if svc.looping(text):  # quelques Ko par image : vérifier à chaque morceau reste négligeable
+        raise svc.InvalidModelOutput("Transcription interrompue : le modèle répétait le même passage en boucle.")
+
+
 async def _read_one(spec: svc.ModelSpec, data: bytes, label: str) -> str:
     prov = spec.provider
     extra, system = svc._thinking_off(spec, VISION_PROMPT)
@@ -64,8 +70,8 @@ async def _read_one(spec: svc.ModelSpec, data: bytes, label: str) -> str:
         try:
             text, _ = await llm_client.chat(
                 base_url=prov.api_base, api_key=prov.api_key, model=spec.name, messages=messages, temperature=0,
-                max_tokens=prov.max_output_tokens, ca_bundle=prov.ca_bundle, stream=True, extra=extra,
-                timeout=svc.request_timeout(spec, streaming=True),
+                max_tokens=svc._max_output(prov), ca_bundle=prov.ca_bundle, stream=True, extra=extra,
+                timeout=svc.request_timeout(spec, streaming=True), on_delta=_stop_if_looping,
             )
             return svc._THINK.sub("", text).strip()
         except llm_client.RETRYABLE as exc:

@@ -146,3 +146,50 @@ def test_fenetre_ollama_moyenne_les_lots_s_y_adaptent(monkeypatch):
                      documents=[], created_at=datetime.now())
     asyncio.run(svc._fit_local_context(a, spec))
     assert a.context_cap == 28_000 and batch_pipeline.window_tokens(spec, a.context_cap) == 28_000
+
+
+def test_lots_extraits_reservent_dans_un_autre_mode(fixtures_dir, monkeypatch):
+    """Relancer en mode Parcours (ou Transcription…) après une Synthèse globale ne refait pas l'extraction."""
+    calls = []
+
+    async def fake_call(analysis, chain, system_prompt, user, **kw):
+        calls.append(user)
+        return _answer(user)
+
+    monkeypatch.setattr(svc, "_call", fake_call)
+    monkeypatch.setattr(batch_pipeline, "budget_chars", lambda spec, cap=0: 200)
+    doc, spec = _doc(fixtures_dir), _spec(local=True)
+    asyncio.run(batch_pipeline.extract(_analysis(doc), [spec], svc.QuoteChecker("")))
+    first = len(calls)
+    assert first > 0
+    for mode in ("flow", "transcript", "notes"):
+        a = _analysis(doc)
+        a.mode = mode
+        items, _, _ = asyncio.run(batch_pipeline.extract(a, [spec], svc.QuoteChecker("")))
+        assert len(items) == 6 and len(calls) == first, mode
+        assert "repris de l'analyse précédente" in a.step_notes[1]
+
+
+def test_lots_extraits_avant_la_mise_a_jour_relus(fixtures_dir, monkeypatch):
+    calls = []
+
+    async def fake_call(analysis, chain, system_prompt, user, **kw):
+        calls.append(user)
+        return _answer(user)
+
+    monkeypatch.setattr(svc, "_call", fake_call)
+    monkeypatch.setattr(batch_pipeline, "budget_chars", lambda spec, cap=0: 200)
+    monkeypatch.setattr(batch_pipeline, "_extract_prompt",
+                        lambda language: batch_pipeline._legacy_extract_prompt("flow", language))
+    doc, spec = _doc(fixtures_dir), _spec(local=True)
+    a = _analysis(doc)
+    a.mode = "flow"
+    asyncio.run(batch_pipeline.extract(a, [spec], svc.QuoteChecker("")))  # lots enregistrés comme en 2.8.0
+    first = len(calls)
+    monkeypatch.undo()
+    monkeypatch.setattr(svc, "_call", fake_call)
+    monkeypatch.setattr(batch_pipeline, "budget_chars", lambda spec, cap=0: 200)
+    a = _analysis(doc)
+    a.mode = "flow"
+    items, _, _ = asyncio.run(batch_pipeline.extract(a, [spec], svc.QuoteChecker("")))
+    assert len(items) == 6 and len(calls) == first

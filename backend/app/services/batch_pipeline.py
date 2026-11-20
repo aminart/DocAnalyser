@@ -38,14 +38,17 @@ MAX_MERGE_ROUNDS = 4
 THEME_KINDS = "fait | chiffre | decision | action | friction | attente | desaccord | verbatim"
 FLOW_KINDS = THEME_KINDS + " | etape | transition | sortie | ressenti | point_de_contact"
 
-KIND_HINTS = {
-    "themes": "",
-    "flow": (
-        "Pour le parcours, extrais aussi : « etape » (ce que fait l'utilisateur), « transition » (passage d'une "
-        "étape à une autre, avec sa condition), « sortie » (abandon, point de rupture), « ressenti » (émotion "
-        "exprimée), « point_de_contact » (canal, écran, interlocuteur)."
-    ),
-}
+# Extraction commune à tous les modes : les lots extraits resservent quand on relance l'analyse dans un autre
+# mode (Parcours après Synthèse globale, par exemple). Les types propres au parcours servent aussi de repères
+# aux thèmes ; le mode choisi n'intervient qu'au classement et à la rédaction.
+EXTRACT_KINDS = FLOW_KINDS
+EXTRACT_HINT = (
+    "Les éléments serviront aussi bien à une synthèse par thèmes qu'à la reconstitution d'un parcours utilisateur : "
+    "relève les faits, chiffres, décisions, actions annoncées, frictions, attentes, désaccords et verbatims, et "
+    "aussi, quand l'extrait en parle : « etape » (ce que fait l'utilisateur), « transition » (passage d'une étape "
+    "à une autre, avec sa condition), « sortie » (abandon, point de rupture), « ressenti » (émotion exprimée), "
+    "« point_de_contact » (canal, écran, interlocuteur)."
+)
 
 
 def window_tokens(spec: svc.ModelSpec, cap: int = 0) -> int:
@@ -159,11 +162,48 @@ def _lot_purge() -> None:
         pass
 
 
+async def _cached_call_json(analysis: svc.Analysis, chain: list[svc.ModelSpec], prompt: str, user: str,
+                            **kw) -> dict[str, Any]:
+    """Appel gardé sur le disque comme un lot : « Reprendre l'analyse » ne le refait pas."""
+    key = _lot_key(chain[0], prompt, user)
+    cached = _lot_load(key)
+    if cached is not None:
+        return cached
+    out = await svc._call_json(analysis, chain, prompt, user, **kw)
+    _lot_save(key, out)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 1. Extraction
 # ---------------------------------------------------------------------------
 
-def _extract_prompt(mode: str, language: str) -> str:
+def _extract_prompt(language: str) -> str:
+    """Consigne d'extraction d'un lot, identique quel que soit le mode (voir EXTRACT_HINT)."""
+    return "\n\n".join([
+        svc.BASE_RULES,
+        "Tu traites une partie d'un corpus trop long pour être lu d'un seul tenant. Extrais de cet extrait TOUS les "
+        "éléments utiles à la compréhension du sujet, sans en omettre aucun, y compris en fin d'extrait. Chaque "
+        "élément reprend fidèlement le contenu (pas d'interprétation, pas de généralisation) et indique son document "
+        "et le repère exact de la ligne d'origine. Les verbatims sont recopiés mot pour mot.",
+        EXTRACT_HINT,
+        _lang(language),
+        'Schéma JSON attendu :\n{\n  "items": [\n    {"kind": "' + EXTRACT_KINDS + '", "text": "contenu fidèle", '
+        '"speaker": "qui parle (verbatim) ou chaîne vide", "document": "nom exact du document", '
+        '"location": "repère exact (L12, §4, Page 3, Slide 2, 00:01:10)"}\n  ],\n'
+        '  "topics": ["sujets abordés dans cet extrait (3 à 6 mots)"]\n}',
+    ])
+
+
+_LEGACY_FLOW_HINT = (
+    "Pour le parcours, extrais aussi : « etape » (ce que fait l'utilisateur), « transition » (passage d'une "
+    "étape à une autre, avec sa condition), « sortie » (abandon, point de rupture), « ressenti » (émotion "
+    "exprimée), « point_de_contact » (canal, écran, interlocuteur)."
+)
+
+
+def _legacy_extract_prompt(mode: str, language: str) -> str:
+    """Consigne d'extraction jusqu'à la 2.8.0 (une par mode) : relit les lots déjà extraits avant la mise à jour."""
     kinds = FLOW_KINDS if mode == "flow" else THEME_KINDS
     return "\n\n".join([
         svc.BASE_RULES,
@@ -172,7 +212,7 @@ def _extract_prompt(mode: str, language: str) -> str:
         "éléments utiles à la compréhension du sujet, sans en omettre aucun, y compris en fin d'extrait. Chaque "
         "élément reprend fidèlement le contenu (pas d'interprétation, pas de généralisation) et indique son document "
         "et le repère exact de la ligne d'origine. Les verbatims sont recopiés mot pour mot.",
-        KIND_HINTS["flow" if mode == "flow" else "themes"],
+        _LEGACY_FLOW_HINT if mode == "flow" else "",
         _lang(language),
         'Schéma JSON attendu :\n{\n  "items": [\n    {"kind": "' + kinds + '", "text": "contenu fidèle", '
         '"speaker": "qui parle (verbatim) ou chaîne vide", "document": "nom exact du document", '
@@ -189,7 +229,7 @@ async def extract(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: s
     segments = [b.to_prompt_segment() for d in analysis.documents for b in d.blocks]
     groups = _group(segments, int(budget_chars(chain[0], analysis.context_cap) * EXTRACT_SHARE))
     doc_names = [d.name for d in analysis.documents]
-    prompt = _extract_prompt(analysis.mode, analysis.language)
+    prompt = _extract_prompt(analysis.language)
     done = resumed = 0
     _lot_purge()
     started = time.monotonic()
@@ -202,6 +242,12 @@ async def extract(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: s
         user = "Extrait du corpus :\n\n" + "\n".join(segments[i] for i in idx)
         key = _lot_key(chain[0], prompt, user)
         cached = _lot_load(key)
+        if cached is None:
+            # Lot extrait avant la 2.8.1 dans le même mode (ou en Parcours, qui relève tous les types).
+            for mode in dict.fromkeys((analysis.mode, "flow")):
+                cached = _lot_load(_lot_key(chain[0], _legacy_extract_prompt(mode, analysis.language), user))
+                if cached is not None:
+                    break
         if cached is not None:
             return {**cached, "_resumed": True}
         try:
@@ -294,7 +340,7 @@ async def _propose_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], ma
                 "Pour un corpus volumineux, prévois assez de thèmes pour que chacun reste lisible.")
     prompt = "\n\n".join([svc.BASE_RULES, svc.MODE_GUIDANCE[analysis.mode], task, svc.COMPLETENESS_RULE,
                            _lang(analysis.language), THEMES_SCHEMA_SHORT])
-    outline = await svc._call_json(analysis, chain, prompt, material[: budget_chars(chain[0], analysis.context_cap)])
+    outline = await _cached_call_json(analysis, chain, prompt, material[: budget_chars(chain[0], analysis.context_cap)])
     known = {t["title"].lower() for t in existing}
     themes = [
         {"title": svc._s(t.get("title")), "scope": svc._s(t.get("scope")), "items": []}
@@ -302,6 +348,9 @@ async def _propose_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], ma
         if isinstance(t, dict) and svc._s(t.get("title")) and svc._s(t.get("title")).lower() not in known
     ]
     return svc._s(outline.get("title")), themes
+
+
+_ASSIGN_KEY = re.compile(r'"[^"\n]{1,20}"\s*:\s*\d')
 
 
 async def _assign(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item],
@@ -317,14 +366,43 @@ async def _assign(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: lis
     budget = int(budget_chars(chain[0], analysis.context_cap) * 0.6) - len(theme_list)
     result: dict[str, int] = {}
 
+    state = {"done": 0, "total": 0, "computed": 0, "started": time.monotonic()}
+    note = analysis.step_notes.get(2, "")
+
     async def one(part: list[Item]) -> dict[str, Any]:
-        out = await svc._call_json(analysis, chain, prompt, "Éléments :\n" + "\n".join(i.line() for i in part))
+        # Un modèle local peut se mettre à numéroter des éléments qui n'existent pas (« e345 », « e346 »…) sans
+        # jamais s'arrêter : au-delà du nombre d'éléments envoyés, la réponse est interrompue.
+        limit = len(part) + 10
+
+        def watch(text: str) -> None:
+            if len(_ASSIGN_KEY.findall(text)) > limit:
+                raise svc.InvalidModelOutput("Le modèle classe des éléments qui n'existent pas : réponse interrompue.")
+
+        user = "Éléments :\n" + "\n".join(i.line() for i in part)
+        key = _lot_key(chain[0], prompt, user)
+        out = _lot_load(key)
+        if out is None:
+            try:
+                out = await svc._call_json(analysis, chain, prompt, user, on_text=watch)
+                _lot_save(key, out)
+            except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+                # Paquet laissé sans classement : ses éléments sont redemandés au second passage, sinon
+                # rangés dans « Autres points ». L'analyse continue.
+                logger.warning("Classement : paquet de %s éléments sans réponse exploitable (%s)", len(part), exc)
+                out = {}
+            state["computed"] += 1
+        state["done"] += 1
+        if state["computed"]:
+            per_part = (time.monotonic() - state["started"]) / state["computed"]
+            analysis.eta_at = time.time() + per_part * (state["total"] - state["done"]) + per_part * 3
+        analysis.step_notes[2] = f"{note} · paquet {state['done']}/{state['total']} classé"
         mapping = out.get("assign")
         return mapping if isinstance(mapping, dict) else {}
 
     pending = items
     for _ in range(2):  # second passage : éléments que le modèle n'a pas renvoyés
         groups = _group([i.line() for i in pending], budget, ASSIGN_MAX_ITEMS)
+        state.update(done=0, total=len(groups))
         for mapping in await _gather_limited([one([pending[k] for k in g]) for g in groups], svc.concurrency(chain[0])):
             for item_id, num in mapping.items():
                 try:
@@ -340,6 +418,7 @@ async def _assign(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: lis
 async def classify(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item], topics: list[str]) -> tuple[str, list[dict[str, Any]], int]:
     """Retourne (titre, thèmes avec leurs éléments, nombre d'éléments restés sans thème)."""
     topic_text = "\n".join(f"- {t}" for t in topics) or "\n".join(i.line() for i in items[:200])
+    analysis.step_notes[2] = f"Choix des thèmes à partir de {len(topics) or len(items[:200])} sujets repérés"
     title, themes = await _propose_themes(analysis, chain, topic_text, [])
     if not themes:
         raise svc.AnalysisError("Le modèle n'a identifié aucun thème exploitable.")
@@ -360,7 +439,11 @@ async def classify(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: li
         if len(leftovers) <= max(10, MAX_OTHER_SHARE * len(items)) or round_ == MAX_THEME_ROUNDS:
             break
         # Trop d'éléments sans thème : de nouveaux thèmes sont dégagés à partir de ces éléments.
-        _, extra = await _propose_themes(analysis, chain, "\n".join(i.line() for i in leftovers), themes)
+        try:
+            _, extra = await _propose_themes(analysis, chain, "\n".join(i.line() for i in leftovers), themes)
+        except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+            logger.warning("Thèmes supplémentaires non proposés (%s) : les éléments restants vont dans « Autres points »", exc)
+            extra = []
         if not extra:
             break
         themes += extra
@@ -461,9 +544,15 @@ async def write_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], theme
                 + (f"\n\nPassages d'origine :\n{passages}" if passages else ""))
         try:
             async with sem:
-                return [await svc._call_json(analysis, chain, prompt, user)]
-        except svc.ProviderUnavailable:
-            raise  # fournisseur indisponible : inutile de redécouper
+                return [await _cached_call_json(analysis, chain, prompt, user)]
+        except svc.ProviderUnavailable as exc:
+            if not exc.timed_out:
+                raise  # fournisseur indisponible : inutile de redécouper
+            # Délai dépassé (modèle local lent sur une grosse partie) : redécoupe, comme pour une réponse illisible.
+            if len(part) > 1:
+                half = len(part) // 2
+                return await write_part(theme, part[:half], label) + await write_part(theme, part[half:], label)
+            return [{"theme": {"points": [_as_point(part[0])]}, "raw": True}]
         except svc.AnalysisError:
             if len(part) > 1:  # requête refusée ou réponse illisible : on redécoupe
                 half = len(part) // 2
@@ -606,7 +695,12 @@ async def assemble(analysis: svc.Analysis, chain: list[svc.ModelSpec], title: st
         _lang(analysis.language),
         'Schéma JSON attendu : {"title": "titre court et explicite", "brief": "…"}',
     ])
-    head = await svc._call_json(analysis, chain, prompt, digest)
+    try:
+        head = await _cached_call_json(analysis, chain, prompt, digest)
+    except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+        # Titre et « En bref » seulement : les thèmes rédigés ne sont pas perdus pour autant.
+        logger.warning("Titre et « En bref » non rédigés (%s)", exc)
+        head = {}
     actions, seen = [], set()
     for n, t in enumerate(written, start=1):
         for a in t.pop("actions", []):
@@ -651,7 +745,31 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
     budget = budget_chars(chain[0], analysis.context_cap)
     doc_names = [d.name for d in analysis.documents]
 
-    # Dédoublonnage par paquets tant que la liste ne tient pas dans la fenêtre.
+    # Dédoublonnage par paquets tant que la liste ne tient pas dans la fenêtre. Le modèle y recopie chaque paquet
+    # presque en entier : c'est long sur un modèle local, d'où la progression paquet par paquet, la durée restante
+    # recalculée, les paquets gardés sur le disque (reprise) et un paquet laissé tel quel s'il échoue.
+    merged_done, started = 0, time.monotonic()
+
+    async def merge_one(k: int, total: int, rnd: int, part: list[Item], user: str) -> dict[str, Any]:
+        nonlocal merged_done
+        key = _lot_key(chain[0], MERGE_PROMPT, user)
+        out = _lot_load(key)
+        if out is None:
+            try:
+                out = await svc._call_json(analysis, chain, MERGE_PROMPT, user)
+                _lot_save(key, out)
+            except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+                # Les doublons de ce paquet restent : la suite du parcours les regroupe de toute façon.
+                logger.warning("Fusion des doublons : paquet %s/%s gardé tel quel (%s)", k, total, exc)
+                out = {"items": [{"kind": it.kind, "text": it.text, "speaker": it.speaker, "document": it.document,
+                                  "location": it.location} for it in part]}
+            merged_done += 1
+            per_part = (time.monotonic() - started) / merged_done
+            analysis.eta_at = time.time() + per_part * ((total - k) + 2)  # + plan et rédaction du parcours
+        analysis.step_notes[1] = (f"{n_batches} lots extraits · fusion des doublons (passe {rnd}) · "
+                                  f"paquet {k}/{total} fusionné")
+        return out
+
     rounds = 0
     while len("\n".join(i.line() for i in items)) > budget * 0.7:
         rounds += 1
@@ -659,9 +777,10 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
             raise svc.AnalysisError("Le parcours décrit est trop volumineux pour ce modèle : choisissez un modèle à plus grande fenêtre.")
         lines = [i.line() for i in items]
         groups = _group(lines, int(budget * EXTRACT_SHARE))
-        analysis.step_notes[1] = f"{n_batches} lots extraits · fusion des doublons (passe {rounds})"
+        analysis.step_notes[1] = f"{n_batches} lots extraits · fusion des doublons (passe {rounds}, {len(groups)} paquets)"
         results = await _gather_limited([
-            svc._call_json(analysis, chain, MERGE_PROMPT, "\n".join(lines[i] for i in g)) for g in groups
+            merge_one(k, len(groups), rounds, [items[i] for i in g], "\n".join(lines[i] for i in g))
+            for k, g in enumerate(groups, start=1)
         ], svc.concurrency(chain[0]))
         merged: list[Item] = []
         for raw_out in results:
@@ -684,7 +803,7 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
               + "\n".join(i.line() for i in items))
     svc._enter(analysis, 2)
     outline = await svc._with_creep(
-        analysis, 60, svc._call_json(analysis, chain, svc._outline_prompt("flow", analysis.level, analysis.language), corpus))
+        analysis, 60, _cached_call_json(analysis, chain, svc._outline_prompt("flow", analysis.level, analysis.language), corpus))
     names = [svc._s(p.get("name")) for p in outline.get("phases") or [] if isinstance(p, dict) and svc._s(p.get("name"))]
     analysis.preview += names
     svc._enter(analysis, 3)
@@ -692,7 +811,7 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
             + "\n".join(f"{i + 1}. {n}" for i, n in enumerate(names)) + "\n\n" + corpus)
     data = await svc._with_creep(
         analysis, 90,
-        svc._call_json(analysis, chain, svc._full_prompt("flow", analysis.level, analysis.language, analysis.cite), user))
+        _cached_call_json(analysis, chain, svc._full_prompt("flow", analysis.level, analysis.language, analysis.cite), user))
     svc._enter(analysis, 4)
     data.setdefault("title", svc._s(outline.get("title")))
     missing = uncovered(items, data)

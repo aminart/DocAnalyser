@@ -19,6 +19,7 @@ Les noms déplacés restent importables depuis ce module.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 import json
 import re
@@ -69,6 +70,33 @@ logger = logging.getLogger("analyse")
 
 
 
+LOOP_WINDOW = 200  # caractères comparés pour reconnaître une réponse qui tourne en boucle
+LOOP_SPAN = 4_000  # fin de réponse examinée
+LOOP_REPEATS = 5  # le même passage revenu autant de fois dans cette fin de réponse : boucle
+
+
+def looping(text: str) -> bool:
+    """Vrai si la fin de la réponse répète le même passage en boucle (texte, ou retours à la ligne sans fin).
+
+    À température 0, un modèle local peut se mettre à réécrire indéfiniment les mêmes lignes ; comme il envoie
+    toujours quelque chose, le délai d'attente ne l'arrête jamais.
+    """
+    if len(text) < LOOP_WINDOW * LOOP_REPEATS:
+        return False
+    tail = text[-LOOP_SPAN:]
+    return tail.count(text[-LOOP_WINDOW:]) >= LOOP_REPEATS
+
+
+# Activité de l'analyse dont l'appel est en cours, renseignée par _complete (sans changer sa signature).
+_ACTIVITY: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("activity", default=None)
+
+
+def _max_output(prov: ProviderConf) -> int:
+    if prov.max_output_tokens:
+        return prov.max_output_tokens
+    return settings.LOCAL_MAX_OUTPUT_TOKENS if prov.local else 0
+
+
 async def _complete(
     spec: ModelSpec, system_prompt: str, user_content: str, want_json: bool = True,
     on_text: Callable[[str], None] | None = None,
@@ -76,6 +104,8 @@ async def _complete(
     """Appel au modèle, réponse reçue en streaming ; on_text, s'il est fourni, reçoit le texte accumulé.
 
     Le streaming évite qu'une longue réponse soit coupée par le délai d'attente : celui-ci porte sur chaque morceau.
+    L'activité de l'analyse en cours (_ACTIVITY) reçoit {"since", "chars"} : ce que fait le modèle, affiché à l'écran.
+    Une réponse qui tourne en boucle est interrompue (InvalidModelOutput) : l'appelant la redemande ou redécoupe.
     """
     prov = spec.provider
     if not prov.api_base:
@@ -90,12 +120,31 @@ async def _complete(
     ]
     parts: list[str] = []
     timeout = request_timeout(spec, streaming=True)
+    activity = _ACTIVITY.get()
+    if activity is not None:
+        activity.clear()
+        activity.update(since=time.time(), chars=0)
+    checked = [0]
+
+    def on_delta(text: str, done: str) -> None:
+        full = done + text
+        if activity is not None:
+            activity["chars"] = len(full)
+        if len(full) - checked[0] >= 500:  # vérification par paquets : la réponse peut compter des centaines de Ko
+            checked[0] = len(full)
+            if looping(full):
+                logger.warning("%s répète le même passage en boucle : réponse interrompue après %s caractères",
+                               spec.name, len(full))
+                raise InvalidModelOutput(f"Le modèle {spec.name} s'est mis à répéter le même passage en boucle.")
+        if on_text:
+            on_text(full)
+
     for _ in range(1 + MAX_CONTINUATIONS):
         chunk, finish = await llm_client.chat(
             base_url=prov.api_base, api_key=prov.api_key, model=spec.name, messages=messages,
-            temperature=TEMPERATURE, max_tokens=prov.max_output_tokens, json_mode=json_mode,
+            temperature=TEMPERATURE, max_tokens=_max_output(prov), json_mode=json_mode,
             ca_bundle=prov.ca_bundle,
-            on_delta=(lambda text, done="".join(parts): on_text(done + text)) if on_text else None,
+            on_delta=lambda text, done="".join(parts): on_delta(text, done),
             timeout=timeout, stream=True, extra=extra,
         )
         parts.append(chunk)
@@ -421,6 +470,8 @@ class Analysis:
     vision_model_id: str = ""  # modèle qui lit les images des documents ; vide = texte seul
     error_settings: bool = False  # l'échec se corrige dans les Réglages (clé, adresse, modèle)
     eta_at: float = 0.0  # fin estimée (horodatage time.time()), mesurée sur les premiers lots ; 0 = inconnue
+    # Appel au modèle en cours : {"since": horodatage, "chars": caractères reçus} ; vide = aucun
+    activity: dict[str, Any] = field(default_factory=dict)
     # Thème en cours d'approfondissement (deepen_service) : {"theme", "title", "status", "error"} ; vide = aucun
     deepening: dict[str, Any] = field(default_factory=dict)
 
@@ -483,7 +534,16 @@ class Analysis:
             "markdown_edited": self.markdown_edited,
             "vision_model_id": self.vision_model_id,
             "eta_seconds": max(0, round(self.eta_at - time.time())) if self.status == "running" and self.eta_at else None,
+            "activity": self._activity() if self.status == "running" else None,
         }
+
+    def _activity(self) -> dict[str, Any] | None:
+        """Ce que fait le modèle : il lit la requête (rien reçu encore) ou il écrit (caractères reçus)."""
+        if not self.activity.get("since"):
+            return None
+        chars = int(self.activity.get("chars") or 0)
+        return {"phase": "writing" if chars else "reading", "seconds": max(0, round(time.time() - self.activity["since"])),
+                "chars": chars}
 
     def summary(self) -> dict[str, Any]:
         spec = next((m for m in all_models() if m.id == (self.active_model_id or self.model_id)), None)
@@ -630,7 +690,12 @@ async def _call(
             if wait:
                 await asyncio.sleep(wait)  # surcharge passagère : on patiente avant de réessayer
             try:
-                out = await _complete(spec, system_prompt, user, want_json, on_text)
+                token = _ACTIVITY.set(analysis.activity)
+                try:
+                    out = await _complete(spec, system_prompt, user, want_json, on_text)
+                finally:
+                    _ACTIVITY.reset(token)
+                    analysis.activity.clear()
                 analysis.active_model_id = spec.id
                 return out
             except llm_client.RateLimitError as exc:

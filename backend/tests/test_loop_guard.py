@@ -1,0 +1,199 @@
+"""Modèle local qui tourne en boucle : réponse interrompue, lot redécoupé ; longueur de réponse plafonnée ; activité affichée."""
+import asyncio
+import json
+
+import httpx
+import pytest
+
+from app.services import analysis_service as svc
+from app.services import llm_client
+from app.services.errors import InvalidModelOutput
+
+
+def _spec(local=True, max_out=0):
+    prov = svc.ProviderConf("T", "openai", "T", "", "http://localhost:11434/v1", "", 128_000, ("qwen:27b",),
+                            max_output_tokens=max_out, local=local)
+    return svc.ModelSpec("T:qwen:27b", "qwen:27b", prov, "", 3, 3, 3, "balanced")
+
+
+def _install(monkeypatch, handler):
+    monkeypatch.setattr(llm_client, "_CLIENTS", {"default": httpx.AsyncClient(transport=httpx.MockTransport(handler))})
+
+
+def _sse(*texts):
+    events = [{"choices": [{"delta": {"content": t}}]} for t in texts]
+    return "".join(f"data: {json.dumps(e)}\n\n" for e in events) + "data: [DONE]\n\n"
+
+
+def test_boucle_reconnue():
+    line = '{"kind": "fait", "text": "Le délai de livraison est jugé trop long par les clients interrogés."},\n'
+    assert svc.looping('{"items": [' + line * 40)
+    assert svc.looping('{"items": [' + "\n" * 2000)
+    varied = "".join(f'{{"kind": "fait", "text": "Constat numéro {i} sur un sujet différent à chaque fois."}},\n'
+                     for i in range(60))
+    assert not svc.looping('{"items": [' + varied)
+    assert not svc.looping("court")
+
+
+def test_reponse_en_boucle_interrompue(monkeypatch):
+    line = '{"kind": "fait", "text": "Toujours la même ligne, répétée sans fin par le modèle."},\n'
+
+    def handler(request):
+        return httpx.Response(200, text=_sse('{"items": [', *([line] * 500)), headers={"content-type": "text/event-stream"})
+
+    _install(monkeypatch, handler)
+    activity = {}
+
+    async def go():
+        svc._ACTIVITY.set(activity)
+        await svc._complete(_spec(), "Consigne", "Extrait")
+
+    with pytest.raises(InvalidModelOutput, match="boucle"):
+        asyncio.run(go())
+    assert 0 < activity["chars"] < 100 * len(line)  # coupé bien avant la fin du flux
+
+
+def test_longueur_de_reponse_plafonnee_pour_un_modele_local(monkeypatch):
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content).get("max_tokens"))
+        return httpx.Response(200, text=_sse("{}"), headers={"content-type": "text/event-stream"})
+
+    _install(monkeypatch, handler)
+    asyncio.run(svc._complete(_spec(), "Consigne", "Extrait"))
+    asyncio.run(svc._complete(_spec(max_out=4000), "Consigne", "Extrait"))
+    asyncio.run(svc._complete(_spec(local=False), "Consigne", "Extrait"))
+    assert seen == [svc.settings.LOCAL_MAX_OUTPUT_TOKENS, 4000, None]
+
+
+def test_activite_du_modele_affichee(monkeypatch):
+    a = svc.Analysis("a1", "global", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    assert a.public()["activity"] is None
+    a.activity.update(since=svc.time.time() - 240, chars=0)
+    assert a.public()["activity"] == {"phase": "reading", "seconds": 240, "chars": 0}
+    a.activity["chars"] = 1200
+    assert a.public()["activity"]["phase"] == "writing"
+    a.status = "done"
+    assert a.public()["activity"] is None
+
+
+def test_fusion_des_doublons_paquet_par_paquet_et_paquet_en_echec_garde(monkeypatch):
+    """Mode Parcours : la fusion progresse paquet par paquet ; un paquet qui échoue est gardé tel quel."""
+    from app.services import batch_pipeline
+
+    items = [batch_pipeline.Item(f"e{i}", "fait", f"Constat {i} " + "y" * 60, "cr.txt", f"L{i}") for i in range(12)]
+    calls = []
+
+    async def fake_extract(analysis, chain, checker):
+        return list(items), [], 3
+
+    async def fake_call_json(analysis, chain, system_prompt, user, **kw):
+        if system_prompt == batch_pipeline.MERGE_PROMPT:
+            calls.append(user)
+            if len(calls) == 1:
+                raise svc.InvalidModelOutput("boucle")
+            lines = user.splitlines()
+            return {"items": [{"kind": "fait", "text": l.split(") ", 1)[1], "document": "cr.txt", "location": "L"}
+                              for l in lines[: max(1, len(lines) // 3)]]}
+        if "phases" in system_prompt or "parcours" in system_prompt.lower():
+            return {"title": "T", "phases": [{"name": "Étape"}]}
+        return {"title": "T", "phases": [{"name": "Étape"}]}
+
+    monkeypatch.setattr(batch_pipeline, "extract", fake_extract)
+    monkeypatch.setattr(svc, "_call_json", fake_call_json)
+    monkeypatch.setattr(batch_pipeline, "budget_chars", lambda spec, cap=0: 900)
+    monkeypatch.setattr(batch_pipeline, "EXTRACT_SHARE", 0.4)
+    a = svc.Analysis("f1", "flow", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    asyncio.run(batch_pipeline.run_flow(a, [_spec()], svc.QuoteChecker("")))
+    first = calls[0]
+    assert len(calls) >= 3  # plusieurs paquets, l'échec du premier n'arrête pas l'analyse
+    assert "fusion des doublons" in a.step_notes[1] and "fusionné" in a.step_notes[1]
+    assert a.eta_at > 0
+
+    # Reprise : les paquets déjà fusionnés sont relus sur le disque, seul celui qui avait échoué est redemandé.
+    calls.clear()
+    calls.append("déjà un appel")  # le prochain appel ne simule plus d'échec
+    a2 = svc.Analysis("f2", "flow", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    asyncio.run(batch_pipeline.run_flow(a2, [_spec()], svc.QuoteChecker("")))
+    assert calls[1] == first
+
+
+def test_classement_qui_invente_des_elements_interrompu_et_repris(monkeypatch):
+    """Identification des thèmes : un paquet dont la réponse numérote des éléments inexistants est interrompu,
+    l'analyse continue, et une reprise relit les paquets déjà classés."""
+    from app.services import batch_pipeline
+
+    items = [batch_pipeline.Item(f"e{i}", "fait", f"Constat {i} " + "z" * 50, "cr.txt", f"L{i}") for i in range(1, 31)]
+    calls = []
+    loop = {"on": True}
+
+    async def fake_call_json(analysis, chain, system_prompt, user, on_text=None, **kw):
+        if "Établis la liste" in system_prompt or "thèmes supplémentaires" in system_prompt:
+            return {"title": "Étude", "themes": [{"title": "Thème A", "scope": "tout"}]}
+        calls.append(user)
+        ids = [l.split(" ", 1)[0] for l in user.splitlines()[1:]]
+        if loop["on"] and len(calls) == 1:
+            text = '{"assign": {' + ", ".join(f'"e{n}": 1' for n in range(1, 500))
+            on_text(text)  # doit lever avant
+            raise AssertionError("réponse en boucle non interrompue")
+        return {"assign": {i: 1 for i in ids}}
+
+    monkeypatch.setattr(svc, "_call_json", fake_call_json)
+    monkeypatch.setattr(batch_pipeline, "budget_chars", lambda spec, cap=0: 1500)
+    a = svc.Analysis("c1", "global", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    title, themes, unassigned = asyncio.run(batch_pipeline.classify(a, [_spec()], items, ["sujet"]))
+    assert sum(len(t["items"]) for t in themes) == 30 and unassigned == 0  # paquet raté redemandé au second passage
+    assert "classé" in a.step_notes[2] and a.eta_at > 0
+    n = len(calls)
+
+    a2 = svc.Analysis("c2", "global", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    asyncio.run(batch_pipeline.classify(a2, [_spec()], items, ["sujet"]))
+    assert len(calls) == n  # tout est relu sur le disque
+
+
+def test_redaction_d_un_theme_en_delai_depasse_redecoupee_puis_reprise(monkeypatch):
+    from app.services import batch_pipeline
+
+    items = [batch_pipeline.Item(f"e{i}", "fait", f"Constat {i}", "cr.txt", f"L{i}") for i in range(1, 5)]
+    calls = []
+
+    async def fake_call_json(analysis, chain, system_prompt, user, **kw):
+        calls.append(user)
+        if user.count("[fait]") > 1:
+            raise svc.ProviderUnavailable("délai dépassé", timed_out=True)
+        return {"summary": "", "points": [{"lead": user.split("[fait] (cr.txt ")[1].split(")")[1].strip()}]}
+
+    monkeypatch.setattr(svc, "_call_json", fake_call_json)
+    a = svc.Analysis("w1", "global", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    themes = [{"title": "A", "scope": "tout", "items": items}]
+    written = asyncio.run(batch_pipeline.write_themes(a, [_spec()], themes))
+    assert len(written) == 1  # le délai dépassé n'arrête pas l'analyse : partie redécoupée
+    n = len(calls)
+    asyncio.run(batch_pipeline.write_themes(a, [_spec()], themes))
+    assert len(calls) == n + 3  # reprise : les 4 parties rédigées sont relues, seules les 3 en délai dépassé sont redemandées
+
+
+def test_titre_et_en_bref_en_echec_n_arretent_pas_l_analyse(monkeypatch):
+    from app.services import batch_pipeline
+
+    async def fake_call_json(*a, **kw):
+        raise svc.InvalidModelOutput("boucle")
+
+    monkeypatch.setattr(svc, "_call_json", fake_call_json)
+    a = svc.Analysis("w2", "global", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    data = asyncio.run(batch_pipeline.assemble(a, [_spec()], "Titre des thèmes", [{"title": "A", "summary": "s"}]))
+    assert data["title"] == "Titre des thèmes" and data["brief"] == ""
+
+
+def test_transcription_d_image_en_boucle_interrompue(monkeypatch):
+    from app.services import vision_service
+
+    line = "Le même texte lu sur l'image, répété indéfiniment par le modèle de vision.\n"
+
+    def handler(request):
+        return httpx.Response(200, text=_sse(*([line] * 400)), headers={"content-type": "text/event-stream"})
+
+    _install(monkeypatch, handler)
+    with pytest.raises(InvalidModelOutput):
+        asyncio.run(vision_service._read_one(_spec(), b"img", "Image : x"))
