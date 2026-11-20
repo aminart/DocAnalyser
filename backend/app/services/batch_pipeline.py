@@ -162,6 +162,18 @@ def _lot_purge() -> None:
         pass
 
 
+async def _cached_call_json(analysis: svc.Analysis, chain: list[svc.ModelSpec], prompt: str, user: str,
+                            **kw) -> dict[str, Any]:
+    """Appel gardé sur le disque comme un lot : « Reprendre l'analyse » ne le refait pas."""
+    key = _lot_key(chain[0], prompt, user)
+    cached = _lot_load(key)
+    if cached is not None:
+        return cached
+    out = await svc._call_json(analysis, chain, prompt, user, **kw)
+    _lot_save(key, out)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 1. Extraction
 # ---------------------------------------------------------------------------
@@ -328,7 +340,7 @@ async def _propose_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], ma
                 "Pour un corpus volumineux, prévois assez de thèmes pour que chacun reste lisible.")
     prompt = "\n\n".join([svc.BASE_RULES, svc.MODE_GUIDANCE[analysis.mode], task, svc.COMPLETENESS_RULE,
                            _lang(analysis.language), THEMES_SCHEMA_SHORT])
-    outline = await svc._call_json(analysis, chain, prompt, material[: budget_chars(chain[0], analysis.context_cap)])
+    outline = await _cached_call_json(analysis, chain, prompt, material[: budget_chars(chain[0], analysis.context_cap)])
     known = {t["title"].lower() for t in existing}
     themes = [
         {"title": svc._s(t.get("title")), "scope": svc._s(t.get("scope")), "items": []}
@@ -336,6 +348,9 @@ async def _propose_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], ma
         if isinstance(t, dict) and svc._s(t.get("title")) and svc._s(t.get("title")).lower() not in known
     ]
     return svc._s(outline.get("title")), themes
+
+
+_ASSIGN_KEY = re.compile(r'"[^"\n]{1,20}"\s*:\s*\d')
 
 
 async def _assign(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item],
@@ -351,14 +366,43 @@ async def _assign(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: lis
     budget = int(budget_chars(chain[0], analysis.context_cap) * 0.6) - len(theme_list)
     result: dict[str, int] = {}
 
+    state = {"done": 0, "total": 0, "computed": 0, "started": time.monotonic()}
+    note = analysis.step_notes.get(2, "")
+
     async def one(part: list[Item]) -> dict[str, Any]:
-        out = await svc._call_json(analysis, chain, prompt, "Éléments :\n" + "\n".join(i.line() for i in part))
+        # Un modèle local peut se mettre à numéroter des éléments qui n'existent pas (« e345 », « e346 »…) sans
+        # jamais s'arrêter : au-delà du nombre d'éléments envoyés, la réponse est interrompue.
+        limit = len(part) + 10
+
+        def watch(text: str) -> None:
+            if len(_ASSIGN_KEY.findall(text)) > limit:
+                raise svc.InvalidModelOutput("Le modèle classe des éléments qui n'existent pas : réponse interrompue.")
+
+        user = "Éléments :\n" + "\n".join(i.line() for i in part)
+        key = _lot_key(chain[0], prompt, user)
+        out = _lot_load(key)
+        if out is None:
+            try:
+                out = await svc._call_json(analysis, chain, prompt, user, on_text=watch)
+                _lot_save(key, out)
+            except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+                # Paquet laissé sans classement : ses éléments sont redemandés au second passage, sinon
+                # rangés dans « Autres points ». L'analyse continue.
+                logger.warning("Classement : paquet de %s éléments sans réponse exploitable (%s)", len(part), exc)
+                out = {}
+            state["computed"] += 1
+        state["done"] += 1
+        if state["computed"]:
+            per_part = (time.monotonic() - state["started"]) / state["computed"]
+            analysis.eta_at = time.time() + per_part * (state["total"] - state["done"]) + per_part * 3
+        analysis.step_notes[2] = f"{note} · paquet {state['done']}/{state['total']} classé"
         mapping = out.get("assign")
         return mapping if isinstance(mapping, dict) else {}
 
     pending = items
     for _ in range(2):  # second passage : éléments que le modèle n'a pas renvoyés
         groups = _group([i.line() for i in pending], budget, ASSIGN_MAX_ITEMS)
+        state.update(done=0, total=len(groups))
         for mapping in await _gather_limited([one([pending[k] for k in g]) for g in groups], svc.concurrency(chain[0])):
             for item_id, num in mapping.items():
                 try:
@@ -374,6 +418,7 @@ async def _assign(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: lis
 async def classify(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item], topics: list[str]) -> tuple[str, list[dict[str, Any]], int]:
     """Retourne (titre, thèmes avec leurs éléments, nombre d'éléments restés sans thème)."""
     topic_text = "\n".join(f"- {t}" for t in topics) or "\n".join(i.line() for i in items[:200])
+    analysis.step_notes[2] = f"Choix des thèmes à partir de {len(topics) or len(items[:200])} sujets repérés"
     title, themes = await _propose_themes(analysis, chain, topic_text, [])
     if not themes:
         raise svc.AnalysisError("Le modèle n'a identifié aucun thème exploitable.")

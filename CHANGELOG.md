@@ -18,6 +18,10 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
   est très long sur un modèle local. La progression s'affiche paquet par paquet, la durée restante est
   recalculée, les paquets fusionnés sont gardés pour « Reprendre l'analyse », et un paquet qui échoue (réponse en
   boucle, délai dépassé) est gardé tel quel au lieu d'arrêter l'analyse.
+- « Identification des grands thèmes » (analyse par lots) : un paquet de classement dont la réponse numérote
+  des éléments inexistants sans s'arrêter est interrompu ; un paquet en échec n'arrête plus l'analyse (ses
+  éléments sont redemandés, sinon rangés dans « Autres points ») ; progression paquet par paquet et durée
+  restante recalculée ; choix des thèmes et paquets classés gardés pour « Reprendre l'analyse ».
 - Temps restant : une fois l'estimation dépassée, l'écran indique « plus long que prévu » au lieu de
   « presque terminé ».
 

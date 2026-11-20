@@ -117,3 +117,36 @@ def test_fusion_des_doublons_paquet_par_paquet_et_paquet_en_echec_garde(monkeypa
     a2 = svc.Analysis("f2", "flow", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
     asyncio.run(batch_pipeline.run_flow(a2, [_spec()], svc.QuoteChecker("")))
     assert calls[1] == first
+
+
+def test_classement_qui_invente_des_elements_interrompu_et_repris(monkeypatch):
+    """Identification des thèmes : un paquet dont la réponse numérote des éléments inexistants est interrompu,
+    l'analyse continue, et une reprise relit les paquets déjà classés."""
+    from app.services import batch_pipeline
+
+    items = [batch_pipeline.Item(f"e{i}", "fait", f"Constat {i} " + "z" * 50, "cr.txt", f"L{i}") for i in range(1, 31)]
+    calls = []
+    loop = {"on": True}
+
+    async def fake_call_json(analysis, chain, system_prompt, user, on_text=None, **kw):
+        if "Établis la liste" in system_prompt or "thèmes supplémentaires" in system_prompt:
+            return {"title": "Étude", "themes": [{"title": "Thème A", "scope": "tout"}]}
+        calls.append(user)
+        ids = [l.split(" ", 1)[0] for l in user.splitlines()[1:]]
+        if loop["on"] and len(calls) == 1:
+            text = '{"assign": {' + ", ".join(f'"e{n}": 1' for n in range(1, 500))
+            on_text(text)  # doit lever avant
+            raise AssertionError("réponse en boucle non interrompue")
+        return {"assign": {i: 1 for i in ids}}
+
+    monkeypatch.setattr(svc, "_call_json", fake_call_json)
+    monkeypatch.setattr(batch_pipeline, "budget_chars", lambda spec, cap=0: 1500)
+    a = svc.Analysis("c1", "global", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    title, themes, unassigned = asyncio.run(batch_pipeline.classify(a, [_spec()], items, ["sujet"]))
+    assert sum(len(t["items"]) for t in themes) == 30 and unassigned == 0  # paquet raté redemandé au second passage
+    assert "classé" in a.step_notes[2] and a.eta_at > 0
+    n = len(calls)
+
+    a2 = svc.Analysis("c2", "global", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    asyncio.run(batch_pipeline.classify(a2, [_spec()], items, ["sujet"]))
+    assert len(calls) == n  # tout est relu sur le disque
