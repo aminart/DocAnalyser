@@ -184,6 +184,14 @@ export interface AnalysisSummary {
   created_at: string;
 }
 
+export interface ModelActivity {
+  phase: 'reading' | 'writing';
+  /** Secondes depuis l'envoi de la demande. */
+  seconds: number;
+  /** Caractères de réponse reçus. */
+  chars: number;
+}
+
 export interface Analysis {
   id: string;
   status: AnalysisStatus;
@@ -210,6 +218,8 @@ export interface Analysis {
   vision_model_id?: string;
   /** Durée restante estimée (secondes), mesurée sur les premiers lots ; null si inconnue. */
   eta_seconds?: number | null;
+  /** Appel au modèle en cours : il lit la demande (rien reçu) ou il écrit ; null si aucun. */
+  activity?: ModelActivity | null;
   error: string | null;
   /** L'échec se corrige dans les Réglages (clé refusée, adresse manquante ou injoignable, modèle absent). */
   error_settings?: boolean;

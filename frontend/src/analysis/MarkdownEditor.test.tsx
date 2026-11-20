@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { analysisApi } from './api';
 import { MarkdownEditor } from './MarkdownEditor';
-import { formatRemaining } from './ProgressScreen';
+import { activityLabel, formatRemaining, remainingLabel } from './ProgressScreen';
 import { Analysis } from './types';
 
 vi.mock('./api', () => ({ analysisApi: { updateMarkdown: vi.fn() } }));
@@ -42,6 +42,19 @@ describe('MarkdownEditor : brouillon', () => {
     render(<MarkdownEditor analysis={other} onSaved={vi.fn()} />);
     expect((screen.getByLabelText('Texte de la synthèse') as HTMLTextAreaElement).value).toBe('# Brouillon');
     expect(screen.getByText(/modifications non enregistrées ont été gardées/)).toBeTruthy();
+  });
+});
+
+describe('remainingLabel et activityLabel', () => {
+  it('dit que l’estimation est dépassée au lieu de « presque terminé »', () => {
+    expect(remainingLabel(0)).toBe('plus long que prévu');
+    expect(remainingLabel(12 * 60)).toBe('≈ 12 min');
+  });
+  it('décrit ce que fait le modèle', () => {
+    expect(activityLabel(null)).toBe('');
+    expect(activityLabel({ phase: 'reading', seconds: 5, chars: 0 })).toBe('');
+    expect(activityLabel({ phase: 'reading', seconds: 4 * 60 + 3, chars: 0 })).toBe('Le modèle lit la demande depuis 4 min');
+    expect(activityLabel({ phase: 'writing', seconds: 125, chars: 12300 })).toMatch(/^Le modèle écrit : 12\s300 caractères reçus en 2 min$/);
   });
 });
 

@@ -5,6 +5,23 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.8.1] — 2026-11-20
+
+### Corrigé
+
+- Modèle local (Ollama) qui se met à répéter le même passage en boucle : la réponse est interrompue, redemandée
+  une fois, puis le lot est coupé en deux. Avant, l'analyse restait bloquée sans fin sur ce lot, car un modèle
+  qui écrit encore n'était jamais arrêté.
+- Longueur de réponse plafonnée pour un modèle local (`LOCAL_MAX_OUTPUT_TOKENS`, 16 000 tokens par défaut) si
+  la connexion n'en fixe pas : une réponse plus longue est demandée en plusieurs parties.
+- Temps restant : une fois l'estimation dépassée, l'écran indique « plus long que prévu » au lieu de
+  « presque terminé ».
+
+### Ajouté
+
+- Pendant l'analyse, sous l'étape en cours : ce que fait le modèle (« lit la demande depuis 4 min », « écrit :
+  12 300 caractères reçus en 2 min »), pour distinguer un lot long d'un lot bloqué.
+
 ## [2.8.0] — 2026-11-19
 
 ### Ajouté

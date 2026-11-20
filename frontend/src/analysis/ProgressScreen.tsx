@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { askNotifyPermission, notifyPermission } from './notify';
-import { Analysis } from './types';
+import { Analysis, ModelActivity } from './types';
 import { Icons, docCountLabel, themeColor } from './ui';
 
 const Spinner: React.FC<{ size: number; stroke: number }> = ({ size, stroke }) => (
@@ -20,6 +20,24 @@ export const formatRemaining = (seconds: number): string => {
   const m = minutes % 60;
   return `≈ ${h} h${m ? ` ${String(m).padStart(2, '0')}` : ''}`;
 };
+
+const duration = (seconds: number): string => {
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 1) return `${seconds} s`;
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')}`;
+};
+
+/** « Le modèle lit la demande depuis 4 min », « Le modèle écrit : 12 300 caractères reçus en 2 min ». */
+export const activityLabel = (a: ModelActivity | null | undefined): string => {
+  if (!a || a.seconds < 10) return '';
+  if (a.phase === 'reading') return `Le modèle lit la demande depuis ${duration(a.seconds)}`;
+  return `Le modèle écrit : ${a.chars.toLocaleString('fr-FR')} caractères reçus en ${duration(a.seconds)}`;
+};
+
+/** Temps restant ; une fois l'estimation dépassée, on le dit au lieu d'annoncer une fin imminente. */
+export const remainingLabel = (seconds: number): string =>
+  seconds <= 0 ? 'plus long que prévu' : formatRemaining(seconds);
 
 export const ProgressScreen: React.FC<{
   analysis: Analysis;
@@ -94,7 +112,7 @@ export const ProgressScreen: React.FC<{
             <span className="font-semibold">Progression</span>
             <span className="tabular-nums text-ink-muted">
               {running && analysis.eta_seconds != null && (
-                <span className="mr-3">Temps restant estimé : {formatRemaining(analysis.eta_seconds)}</span>
+                <span className="mr-3">Temps restant estimé : {remainingLabel(analysis.eta_seconds)}</span>
               )}
               {pct} %
             </span>
@@ -135,6 +153,11 @@ export const ProgressScreen: React.FC<{
                 <span className="flex flex-grow flex-col">
                   <span className={`font-semibold ${isDone || isActive ? 'text-ink' : 'text-ink-muted'}`}>{st.label}</span>
                   <span className="text-[13px] text-ink-muted">{st.detail}</span>
+                  {isActive && activityLabel(analysis.activity) && (
+                    <span className="text-[13px] text-ink-muted" aria-live="polite">
+                      {activityLabel(analysis.activity)}
+                    </span>
+                  )}
                 </span>
                 <span className="text-[13px] tabular-nums text-ink-muted">
                   {isDone ? 'Terminé' : isActive ? `${st.progress} %` : 'En attente'}
