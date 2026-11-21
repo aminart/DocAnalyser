@@ -188,6 +188,8 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
   const [showAllModels, setShowAllModels] = useState(false);
   const [language, setLanguage] = useState<'fr' | 'en'>('fr');
   const [cite, setCite] = useState(true);
+  // Gros documents : synthèse courte par défaut (détail en annexe) ; true = tout rédiger, comme avant la 2.9.0
+  const [fullLength, setFullLength] = useState(false);
   const [visionId, setVisionId] = useState<string>(readVision);
   const [dragging, setDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -329,6 +331,7 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
         model_id: selectedModel.id,
         language,
         cite,
+        full_length: mode !== 'flow' && fullLength,
         vision_model_id: vision?.id,
         sections: Object.fromEntries(
           ready.filter((f) => f.doc?.sections && f.selection?.trim()).map((f) => [f.doc!.id, f.selection!.trim()]),
@@ -712,6 +715,31 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
                   <span className="h-4 w-4 rounded-full bg-surface" />
                 </span>
               </button>
+              {mode !== 'flow' && (
+                <div className="flex flex-col gap-1">
+                  <button
+                    type="button"
+                    aria-pressed={fullLength}
+                    aria-describedby="full-length-help"
+                    onClick={() => setFullLength((c) => !c)}
+                    className="flex min-h-8 items-center justify-between gap-3 border-none bg-transparent p-0 text-left text-sm text-ink"
+                  >
+                    Synthèse complète pour les gros documents
+                    <span
+                      className={`box-border flex h-[22px] w-[38px] shrink-0 items-center rounded-full p-[3px] transition ${
+                        fullLength ? 'justify-end bg-primary' : 'justify-start bg-line-strong'
+                      }`}
+                    >
+                      <span className="h-4 w-4 rounded-full bg-surface" />
+                    </span>
+                  </button>
+                  <span id="full-length-help" className="text-xs leading-normal text-ink-muted">
+                    {fullLength
+                      ? 'Chaque élément relevé devient un point clé : la synthèse peut dépasser cent pages.'
+                      : 'Désactivé : un gros document donne une synthèse de quelques pages, le détail complet en annexe. Les petits documents ne changent pas.'}
+                  </span>
+                </div>
+              )}
             </div>
 
             {error && (

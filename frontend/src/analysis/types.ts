@@ -86,6 +86,17 @@ export interface Theme {
   /** Thème réécrit par « Approfondir ce thème » ; previous : version d'avant, pour y revenir. */
   deepened?: boolean;
   previous?: Theme;
+  /** Remarque sur la rédaction (éléments repris tels qu'extraits). */
+  note?: string;
+  /** Synthèse courte d'un gros document : tous les éléments extraits du thème, en annexe. */
+  details?: ThemeDetail[];
+}
+
+export interface ThemeDetail {
+  text: string;
+  kind: string;
+  document: string;
+  location: string;
 }
 
 export interface ActionItem {
@@ -105,6 +116,7 @@ export interface Coverage {
   items: number;
   unassigned: number;
   recovered: number; // éléments non repris par la rédaction, rajoutés tels qu'extraits
+  short?: boolean; // synthèse courte : longueur bornée, le détail complet en annexe
 }
 
 export interface ThemesResult {
@@ -216,6 +228,8 @@ export interface Analysis {
   markdown_edited?: boolean;
   /** Modèle qui a lu les images des documents ; vide = texte seul. */
   vision_model_id?: string;
+  /** Gros documents : tout rédigé plutôt qu'une synthèse courte. */
+  full_length?: boolean;
   /** Durée restante estimée (secondes), mesurée sur les premiers lots ; null si inconnue. */
   eta_seconds?: number | null;
   /** Appel au modèle en cours : il lit la demande (rien reçu) ou il écrit ; null si aucun. */

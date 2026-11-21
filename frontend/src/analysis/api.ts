@@ -42,6 +42,8 @@ export const analysisApi = {
     sections?: Record<string, string>;
     /** Modèle qui lit les images des documents ; absent = texte seul. */
     vision_model_id?: string;
+    /** Gros documents : tout rédiger (true) plutôt qu'une synthèse courte avec le détail en annexe. */
+    full_length?: boolean;
   }): Promise<Analysis> {
     return request<Analysis>('/analyses', {
       method: 'POST',
@@ -98,7 +100,8 @@ export const analysisApi = {
     if (!res || !res.ok) throw new Error('Impossible d’effacer les questions.');
   },
 
-  exportUrl: (id: string, format: 'md' | 'docx' | 'pdf') => `${API_BASE}/analyses/${id}/export?format=${format}`,
+  exportUrl: (id: string, format: 'md' | 'docx' | 'pdf' | 'html', annex = true) =>
+    `${API_BASE}/analyses/${id}/export?format=${format}${annex ? '' : '&annex=false'}`,
 };
 
 const json = (method: string, body: unknown): RequestInit => ({

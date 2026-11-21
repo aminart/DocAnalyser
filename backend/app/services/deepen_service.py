@@ -176,6 +176,8 @@ async def _run(analysis: svc.Analysis, index: int, spec: svc.ModelSpec) -> None:
         # Thème encore affiché ? (analyse supprimée ou thèmes changés entre-temps)
         if analysis.result["themes"][index] is not old:
             return
+        if old.get("details"):
+            new["details"] = old["details"]  # l'annexe détaillée reste celle de l'analyse
         new["previous"] = {k: v for k, v in old.items() if k != "previous"}  # pour revenir en arrière
         new["deepened"] = True
         analysis.result["themes"][index] = new
