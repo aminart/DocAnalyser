@@ -5,6 +5,13 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.8.2] — 2026-11-21
+
+### Modifié
+
+- Design system Night Navy 1.2.1 (au lieu de 1.1.0) : les cases à cocher et boutons radio, s'il y en a, prendront
+  le style commun aux apps de la suite. Rien ne change à l'écran aujourd'hui.
+
 ## [2.8.1] — 2026-11-20
 
 ### Corrigé
