@@ -11,7 +11,8 @@ from app.core.config import settings
 from app.services import analysis_service as svc
 from app.services import deepen_service, qa_service
 from app.services import store
-from app.services.export_service import markdown_to_docx, markdown_to_pdf
+from app.services.export_service import markdown_to_docx, markdown_to_html, markdown_to_pdf
+from app.services.report_markdown import without_annex
 from app.services.source_lookup import passage
 
 router = APIRouter(prefix="/api/v2", tags=["DocAnalyser"])
@@ -28,6 +29,8 @@ class AnalysisCreate(BaseModel):
     sections: dict[str, str] = Field(default_factory=dict)
     # Modèle qui lit les images des documents (pages scannées, schémas, photos) ; vide = texte seul
     vision_model_id: str = ""
+    # Gros documents : False = synthèse courte (longueur bornée, détail en annexe) ; True = tout rédiger
+    full_length: bool = False
 
 
 def _get(analysis_id: str) -> svc.Analysis:
@@ -85,7 +88,7 @@ async def create_analysis(payload: AnalysisCreate) -> dict:
     try:
         analysis = svc.create_analysis(
             payload.document_ids, payload.mode, payload.level, payload.model_id, payload.language, payload.cite,
-            payload.sections, payload.vision_model_id,
+            payload.sections, payload.vision_model_id, payload.full_length,
         )
     except svc.AnalysisError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -211,6 +214,10 @@ async def get_source(analysis_id: str, document: str = "", location: str = "", t
     return {"document": doc.name, "location": location, **passage(doc, location, text)}
 
 
+def _no_diagram(md_text: str) -> str:
+    return re.sub(r"```mermaid\n.*?```\n?", "", md_text, flags=re.S)  # schéma : utile en .md seulement
+
+
 def _plain(md_text: str) -> str:
     """Allège le Markdown pour les exports Word/PDF (citations, italiques)."""
     md_text = re.sub(r"```mermaid\n.*?```\n?", "", md_text, flags=re.S)  # schéma : utile en .md seulement
@@ -223,19 +230,23 @@ def _plain(md_text: str) -> str:
 
 
 @router.get("/analyses/{analysis_id}/export")
-async def export_analysis(analysis_id: str, format: Literal["md", "docx", "pdf"] = "md") -> Response:
+async def export_analysis(analysis_id: str, format: Literal["md", "docx", "pdf", "html"] = "md", annex: bool = True) -> Response:
+    """annex=false : sans l'annexe détaillée des gros documents (synthèse courte seule)."""
     analysis = _get(analysis_id)
     if analysis.status != "done":
         raise HTTPException(status_code=400, detail="La synthèse n'est pas encore prête.")
     title = analysis.title or "Synthese"
     slug = re.sub(r"[^A-Za-z0-9]+", "_", title).strip("_")[:60] or "synthese"
+    markdown = analysis.markdown if annex else without_annex(analysis.markdown)
     if format == "md":
-        content, media = analysis.markdown.encode("utf-8"), "text/markdown; charset=utf-8"
+        content, media = markdown.encode("utf-8"), "text/markdown; charset=utf-8"
     elif format == "docx":
-        content = markdown_to_docx(title, _plain(analysis.markdown))
+        content = markdown_to_docx(title, _no_diagram(markdown))  # gras, italiques et citations rendus dans Word
         media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif format == "html":
+        content, media = markdown_to_html(title, markdown), "text/html; charset=utf-8"
     else:
-        content, media = markdown_to_pdf(title, _plain(analysis.markdown)), "application/pdf"
+        content, media = markdown_to_pdf(title, _plain(markdown)), "application/pdf"
     return Response(
         content=content,
         media_type=media,

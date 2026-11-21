@@ -339,6 +339,7 @@ export const ThemesReport: React.FC<{
               {t.open && (
                 <div className="flex flex-col gap-6 px-9 pb-8 pt-2 sm:pl-[92px]">
                   <p className="m-0 text-[19px] leading-[1.6] text-ink">{t.summary}</p>
+                  {t.note && <p className="m-0 text-sm italic leading-normal text-ink-muted">{t.note}</p>}
 
                   <ul className="m-0 flex list-none flex-col gap-4 p-0">
                     {t.points.map((p, k) => (
@@ -414,6 +415,31 @@ export const ThemesReport: React.FC<{
                         <span className="text-[15px] leading-[1.55] text-ink-body">{t.nuance}</span>
                       </div>
                     </div>
+                  )}
+
+                  {t.details && t.details.length > 0 && (
+                    <details className="group rounded-xl border border-line px-[18px] py-3">
+                      <summary className="cursor-pointer text-sm font-semibold text-ink-muted marker:text-ink-subtle">
+                        Détail : {t.details.length} élément{t.details.length > 1 ? 's' : ''} extrait
+                        {t.details.length > 1 ? 's' : ''} des documents
+                      </summary>
+                      <ul className="m-0 mt-3 flex list-disc flex-col gap-1.5 pl-5">
+                        {t.details.map((d, k) => (
+                          <li key={k} className="text-[15px] leading-[1.5] text-ink-body">
+                            {d.text}
+                            {d.document && (
+                              <button
+                                type="button"
+                                onClick={() => setSource({ document: d.document, location: d.location, text: d.text })}
+                                className="ml-2 border-none bg-transparent p-0 text-xs text-ink-muted underline-offset-2 hover:text-accent-ink hover:underline"
+                              >
+                                {[shortDocName(d.document), d.location].filter(Boolean).join(' ')}
+                              </button>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
                   )}
 
                   {onUpdate && <DeepenBar analysis={analysis} theme={result.themes[i]} index={i} onUpdate={onUpdate} />}

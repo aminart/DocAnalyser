@@ -120,4 +120,4 @@ def test_redaction_refusee_isolee_et_element_repris_tel_quel(monkeypatch):
     [theme] = asyncio.run(batch_pipeline.write_themes(a, [spec], [{"title": "T", "scope": "s", "items": items}]))
     leads = " ".join(p["lead"] for p in theme["points"])
     assert all(f"Fait numéro {k} " in leads for k in range(1, 9))  # rien de perdu
-    assert "repris tels qu'extraits" in theme["summary"]
+    assert "repris tels qu'extraits" in theme["note"]

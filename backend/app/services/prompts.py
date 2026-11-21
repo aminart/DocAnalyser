@@ -72,6 +72,45 @@ LEVEL_GUIDANCE: dict[str, str] = {
     ),
 }
 
+# Gros documents (analyse par lots) : longueur bornée de la synthèse. Sans borne, chaque élément extrait
+# devient un point clé et un corpus de plusieurs centaines de pages donne une synthèse de plus de cent pages.
+# Nombre total de points clés visé selon le niveau (≈ 5, 8 à 10 et 12 à 15 pages Word, thèmes compris) ;
+# le détail complet reste en annexe (éléments extraits, rangés par thème, avec leurs sources).
+POINT_BUDGET: dict[str, int] = {"synth": 60, "detail": 50, "deep": 40}
+MIN_THEME_POINTS, MAX_THEME_POINTS = 3, 8
+
+
+def point_quotas(sizes: list[int], level: str) -> list[int]:
+    """Nombre maximal de points clés par thème, selon le poids du thème (nombre d'éléments extraits).
+
+    0 = pas de limite : le thème tient déjà dans sa part du budget, il est rédigé comme avant.
+    Si le corpus entier tient dans le budget, aucun thème n'est limité.
+    """
+    total = sum(sizes)
+    budget = POINT_BUDGET[level]
+    if total <= budget:
+        return [0] * len(sizes)
+    quotas = []
+    for n in sizes:
+        q = max(MIN_THEME_POINTS, min(MAX_THEME_POINTS, round(budget * n / total)))
+        quotas.append(0 if n <= q else q)
+    return quotas
+
+
+SHORT_BODY = {"synth": "rien ou une phrase", "detail": "1 à 2 phrases", "deep": "2 à 3 phrases"}
+
+
+def short_theme_rule(quota: int, level: str) -> str:
+    """Consigne de rédaction d'un thème limité à quota points clés (gros documents), à la place de LEVEL_GUIDANCE."""
+    return (
+        f"Synthèse courte : au plus {quota} points clés pour ce thème. Retiens les informations les plus importantes "
+        "et les plus fréquentes dans les documents, et regroupe celles qui disent la même chose (un point peut citer "
+        "plusieurs sources). Le détail complet figure déjà en annexe : n'essaie pas de tout reprendre. "
+        "Résumé du thème : 2 phrases courtes au plus. Chaque point : une phrase courte en « lead », et en « body » "
+        f"{SHORT_BODY[level]} au plus (chiffres et noms utiles repris tels quels). Un verbatim au plus."
+    )
+
+
 FLOW_GRAPH_RULES: dict[str, str] = {
     level: (
         "« flow » est un graphe libre qui reflète fidèlement ce que décrivent les documents : "

@@ -75,6 +75,16 @@ class QuoteChecker:
         return "close" if best >= self.CLOSE else "absent"
 
 
+def _details(raw: Any, doc_names: list[str]) -> list[dict[str, str]]:
+    out = []
+    for d in raw if isinstance(raw, list) else []:
+        if isinstance(d, dict) and _s(d.get("text")):
+            doc = _match_doc(_s(d.get("document")), doc_names) or ""
+            out.append({"text": _s(d.get("text")), "kind": _s(d.get("kind")), "document": doc,
+                        "location": _s(d.get("location")) if doc else ""})
+    return out
+
+
 def normalize_themes(data: dict[str, Any], doc_names: list[str], checker: QuoteChecker) -> dict[str, Any]:
     themes = []
     citations = {d: 0 for d in doc_names}
@@ -106,6 +116,10 @@ def normalize_themes(data: dict[str, Any], doc_names: list[str], checker: QuoteC
             "quote_check": checker.check(_s(raw.get("quote"))),
             "quote_by": _s(raw.get("quote_by")),
             "nuance": _s(raw.get("nuance")),
+            # Remarque sur la rédaction (éléments repris tels qu'extraits), affichée à part du résumé
+            **({"note": _s(raw.get("note"))} if _s(raw.get("note")) else {}),
+            # Synthèse courte des gros documents : tous les éléments extraits du thème, pour l'annexe
+            **({"details": details} if (details := _details(raw.get("details"), doc_names)) else {}),
         })
     if not themes:
         raise AnalysisError("Le modèle n'a identifié aucun thème exploitable.")
