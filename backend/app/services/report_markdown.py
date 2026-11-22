@@ -1,6 +1,7 @@
 """Rendu de la synthèse en Markdown (export) et du graphe de flux en Mermaid."""
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 from app.services.models import all_models
@@ -80,6 +81,32 @@ QUOTE_NOTES = {
 }
 
 
+# Début de l'annexe détaillée : l'export « sans annexe » coupe le texte ici (même s'il a été modifié à la main).
+ANNEX_MARK = "<!-- annexe -->"
+_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+(?=[A-ZÀ-ÝÉ«\"])")
+
+
+def _paragraphs(text: str, max_sentences: int = 3) -> list[str]:
+    """Coupe un long résumé en paragraphes de quelques phrases, plus faciles à lire qu'un seul pavé."""
+    sentences = _SENTENCE_END.split(text.strip()) if text else []
+    if len(sentences) <= max_sentences:
+        return [text.strip()] if text and text.strip() else []
+    out = []
+    for k in range(0, len(sentences), max_sentences):
+        out += [" ".join(sentences[k:k + max_sentences]), ""]
+    return out[:-1]
+
+
+def without_annex(markdown: str) -> str:
+    """Texte exporté sans l'annexe détaillée (la mention de fin est gardée)."""
+    if ANNEX_MARK not in markdown:
+        return markdown
+    head, _, tail = markdown.partition(ANNEX_MARK)
+    head = re.sub(r"^_Détail complet : .*_\n\n?", "", head, flags=re.M)  # renvoi vers l'annexe absente
+    end = tail.rfind("_Synthèse générée")
+    return head.rstrip() + "\n\n" + (tail[end:] if end >= 0 else "")
+
+
 def to_markdown(analysis: Analysis) -> str:
     r = analysis.result or {}
     spec = next((m for m in all_models() if m.id == (analysis.active_model_id or analysis.model_id)), None)
@@ -98,21 +125,44 @@ def to_markdown(analysis: Analysis) -> str:
     ]
     if r.get("kind") == "themes":
         for i, t in enumerate(r["themes"], start=1):
-            lines += [f"## {i}. {t['title']}", "", t["summary"], ""]
+            lines += [f"## {i}. {t['title']}", ""]
+            lines += [*_paragraphs(t["summary"]), ""]
+            if t.get("note"):
+                lines += [f"_{t['note']}_", ""]
             for p in t["points"]:
+                # Un point aéré : l'idée en gras, son explication dessous, les sources à part.
                 src = "; ".join(f"{s['document']} {s['location']}".strip() for s in p["sources"])
-                lines.append(f"- **{p['lead']}** {p['body']}" + (f" _(Sources : {src})_" if src else ""))
+                lines.append(f"- **{p['lead']}**" + ("  " if p["body"] or src else ""))
+                if p["body"]:
+                    lines.append(f"  {p['body']}" + ("  " if src else ""))
+                if src:
+                    lines.append(f"  _Sources : {src}_")
             lines.append("")
             if t["quote"]:
                 lines += [f"> « {t['quote']} » — {t['quote_by']}{QUOTE_NOTES.get(t['quote_check'], '')}", ""]
             if t["nuance"]:
                 lines += [f"**Nuance / point de divergence :** {t['nuance']}", ""]
+            if t.get("details"):
+                n = len(t["details"])
+                lines += [f"_Détail complet : {n} élément{'s' if n > 1 else ''} extrait{'s' if n > 1 else ''} "
+                          "des documents, en annexe._", ""]
         if r["actions"]:
             lines += ["## Pistes d'action", ""]
             for i, a in enumerate(r["actions"], start=1):
                 tag = f" _(Thème {a['theme']})_" if a.get("theme") else ""
                 lines.append(f"{i}. **{a['title']}** {a['body']}{tag}")
             lines.append("")
+        annex = [(i, t) for i, t in enumerate(r["themes"], start=1) if t.get("details")]
+        if annex:
+            lines += [ANNEX_MARK, "## Annexe — détail des éléments extraits", "",
+                      "_Tous les éléments relevés dans les documents pour les thèmes résumés ci-dessus, tels "
+                      "qu'extraits et avec leur source._", ""]
+            for i, t in annex:
+                lines += [f"### {i}. {t['title']}", ""]
+                for d in t["details"]:
+                    where = " ".join(x for x in (d["document"], d["location"]) if x)
+                    lines.append(f"- {d['text']}" + (f" _({where})_" if where else ""))
+                lines.append("")
     else:
         lines += ["## Carte du parcours", ""]
         for i, ph in enumerate(r.get("phases", []), start=1):

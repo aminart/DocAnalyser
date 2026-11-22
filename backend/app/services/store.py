@@ -70,7 +70,7 @@ def delete_document(doc_id: str) -> None:
 
 _ANALYSIS_FIELDS = ("id", "mode", "level", "model_id", "language", "cite", "status", "progress", "step", "preview",
                     "title", "result", "markdown", "error", "active_model_id", "batched", "questions",
-                    "markdown_edited", "vision_model_id", "error_settings", "deepening")
+                    "markdown_edited", "vision_model_id", "error_settings", "deepening", "full_length")
 
 
 def save_analysis(a: "Analysis") -> None:

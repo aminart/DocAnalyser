@@ -514,67 +514,147 @@ THEME_SCHEMA = """{
 }"""
 
 
-def _theme_prompt(analysis: svc.Analysis) -> str:
-    return "\n\n".join([
-        svc.BASE_RULES,
-        svc.MODE_GUIDANCE[analysis.mode],
+def _theme_prompt(analysis: svc.Analysis, quota: int = 0) -> str:
+    """Consigne de rédaction d'un thème ; quota > 0 : synthèse courte, au plus quota points clés."""
+    task = (
         "Rédige un seul thème de la synthèse à partir des éléments extraits des documents et des passages d'origine "
         "fournis. Couvre tous les éléments listés : chacun doit se retrouver dans un point clé. Reprends tels quels "
         "tous les chiffres, durées, montants, pourcentages, dates, lieux et noms qu'ils contiennent : une synthèse "
         "qui perd un chiffre est infidèle. Vérifie le sens et les citations dans les passages d'origine quand ils "
-        "sont fournis.",
-        svc.LEVEL_GUIDANCE[analysis.level],
+        "sont fournis."
+    ) if not quota else (
+        "Rédige un seul thème de la synthèse à partir des éléments extraits des documents et des passages d'origine "
+        "fournis. Reprends tels quels les chiffres, dates et noms des points retenus. Vérifie le sens et les "
+        "citations dans les passages d'origine quand ils sont fournis."
+    )
+    return "\n\n".join([
+        svc.BASE_RULES,
+        svc.MODE_GUIDANCE[analysis.mode],
+        task,
+        svc.short_theme_rule(quota, analysis.level) if quota else svc.LEVEL_GUIDANCE[analysis.level],
         "Indique les sources de chaque point." if analysis.cite else "Laisse « sources » vide ([]) pour chaque point.",
         _lang(analysis.language),
         "Schéma JSON attendu :\n" + THEME_SCHEMA,
     ])
 
 
-async def write_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], themes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+CONDENSE_SCHEMA = """{
+  "summary": "synthèse du thème",
+  "points": [
+    {"lead": "le point clé en une phrase courte", "body": "développement court",
+     "sources": [{"document": "nom exact du document", "location": "repère exact"}]}
+  ]
+}"""
+
+
+def _condense_prompt(analysis: svc.Analysis, quota: int) -> str:
+    """Réunit les parties d'un thème rédigé en plusieurs fois : un résumé, et au plus quota points (0 = tous)."""
+    if quota:
+        task = (
+            f"Voici un thème de synthèse rédigé en plusieurs parties. Garde-en l'essentiel en au plus {quota} points "
+            "clés : les plus importants et les plus fréquents. Regroupe les points qui disent la même chose et réunis "
+            "leurs sources. Ne reformule pas les chiffres, dates et noms. N'ajoute rien qui ne figure pas dans les "
+            "points fournis. Résumé du thème : 2 phrases courtes au plus."
+        )
+    else:
+        task = (
+            "Voici les résumés partiels d'un même thème de synthèse, rédigé en plusieurs parties. Rédige un seul "
+            "résumé du thème en 2 à 3 phrases courtes, sans rien ajouter qui n'y figure. Laisse « points » vide ([])."
+        )
+    return "\n\n".join([svc.BASE_RULES, task, _lang(analysis.language), "Schéma JSON attendu :\n" + CONDENSE_SCHEMA])
+
+
+def _point_text(p: dict[str, Any]) -> str:
+    src = "; ".join(f"{svc._s(s.get('document'))} {svc._s(s.get('location'))}".strip()
+                    for s in p.get("sources") or [] if isinstance(s, dict))
+    return f"- {svc._s(p.get('lead'))} {svc._s(p.get('body'))}".rstrip() + (f" [{src}]" if src else "")
+
+
+async def _condense(analysis: svc.Analysis, chain: list[svc.ModelSpec], merged: dict[str, Any], summaries: list[str],
+                    quota: int) -> None:
+    """Résumé unique (et, si quota, points réduits) pour un thème rédigé en plusieurs parties. Modifie merged.
+
+    Sans cette étape, les résumés des parties sont mis bout à bout et le thème s'ouvre sur un long pavé.
+    """
+    if quota:
+        user = (f"Thème : {merged['title']}\n\nRésumés des parties :\n" + "\n".join(f"- {x}" for x in summaries)
+                + "\n\nPoints clés :\n" + "\n".join(_point_text(p) for p in merged["points"]))
+    else:
+        user = f"Thème : {merged['title']}\n\nRésumés des parties :\n" + "\n".join(f"- {x}" for x in summaries)
+    try:
+        out = await _cached_call_json(analysis, chain, _condense_prompt(analysis, quota), user)
+    except (svc.InvalidModelOutput, svc.ProviderUnavailable, svc.AnalysisError) as exc:
+        logger.warning("Thème « %s » non resserré (%s)", merged["title"], exc)
+        out = {}
+    summary = svc._s(out.get("summary"))
+    merged["summary"] = summary or (summaries[0] if summaries else merged["summary"])
+    points = [p for p in out.get("points") or [] if isinstance(p, dict) and svc._s(p.get("lead"))]
+    if quota:
+        # Réponse inexploitable : on garde les premiers points rédigés, le reste figure en annexe.
+        merged["points"] = (points or merged["points"])[:quota]
+
+
+def _detail(it: Item) -> dict[str, Any]:
+    """Élément extrait tel quel, pour l'annexe détaillée."""
+    text = f"« {it.text} »" + (f" — {it.speaker}" if it.speaker else "") if it.kind == "verbatim" else it.text
+    return {"text": text, "kind": it.kind, "document": it.document, "location": it.location}
+
+
+async def write_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], themes: list[dict[str, Any]],
+                       quotas: list[int] | None = None) -> list[dict[str, Any]]:
+    """Rédige chaque thème ; quotas[i] > 0 : au plus quotas[i] points clés (synthèse courte des gros documents)."""
     budget = int(budget_chars(chain[0], analysis.context_cap) * PASSAGE_SHARE)
-    prompt = _theme_prompt(analysis)
+    quotas = quotas or [0] * len(themes)
     sem = asyncio.Semaphore(svc.concurrency(chain[0]))  # par requête, toutes parties confondues
     done = 0
     started = time.monotonic()
 
-    async def write_part(theme: dict[str, Any], part: list[Item], label: str) -> list[dict[str, Any]]:
+    async def write_part(theme: dict[str, Any], part: list[Item], label: str, quota: int) -> list[dict[str, Any]]:
         lines = "\n".join(i.line() for i in part)
         passages = _passages(analysis, part, budget - len(lines))
         user = (f"Thème : {theme['title']} — {theme['scope']}{label}\n\nÉléments extraits :\n{lines}"
                 + (f"\n\nPassages d'origine :\n{passages}" if passages else ""))
         try:
             async with sem:
-                return [await _cached_call_json(analysis, chain, prompt, user)]
+                return [await _cached_call_json(analysis, chain, _theme_prompt(analysis, quota), user)]
         except svc.ProviderUnavailable as exc:
             if not exc.timed_out:
                 raise  # fournisseur indisponible : inutile de redécouper
             # Délai dépassé (modèle local lent sur une grosse partie) : redécoupe, comme pour une réponse illisible.
             if len(part) > 1:
                 half = len(part) // 2
-                return await write_part(theme, part[:half], label) + await write_part(theme, part[half:], label)
+                q = (quota + 1) // 2 if quota else 0
+                return await write_part(theme, part[:half], label, q) + await write_part(theme, part[half:], label, q)
             return [{"theme": {"points": [_as_point(part[0])]}, "raw": True}]
         except svc.AnalysisError:
             if len(part) > 1:  # requête refusée ou réponse illisible : on redécoupe
                 half = len(part) // 2
-                return await write_part(theme, part[:half], label) + await write_part(theme, part[half:], label)
+                q = (quota + 1) // 2 if quota else 0
+                return await write_part(theme, part[:half], label, q) + await write_part(theme, part[half:], label, q)
             # Dernier recours : l'élément est repris tel qu'extrait, avec sa source ; rien n'est perdu.
             return [{"theme": {"points": [_as_point(part[0])]}, "raw": True}]
 
-    async def write_one(theme: dict[str, Any]) -> dict[str, Any]:
+    async def write_one(theme: dict[str, Any], quota: int) -> dict[str, Any]:
         nonlocal done
         lines = [i.line() for i in theme["items"]]
         groups = _group(lines, budget, WRITE_MAX_ITEMS)  # un thème très fourni est rédigé en plusieurs parties
+        n_items = len(theme["items"])
         results = await asyncio.gather(*(
-            write_part(theme, [theme["items"][i] for i in g], f" (partie {k + 1}/{len(groups)})" if len(groups) > 1 else "")
+            write_part(theme, [theme["items"][i] for i in g], f" (partie {k + 1}/{len(groups)})" if len(groups) > 1 else "",
+                       max(2, -(-quota * len(g) // n_items)) if quota else 0)
             for k, g in enumerate(groups)
         ))
         parts = [p for r in results for p in r]
         merged = _merge_parts(theme, parts)
+        summaries = [x for x in merged.pop("summaries") if x]
         raw = sum(1 for p in parts if p.get("raw"))
-        if raw:
-            merged["summary"] = (merged["summary"] + " " if merged["summary"] else "") + (
-                f"({raw} élément{'s' if raw > 1 else ''} de ce thème n'ont pas pu être rédigés par le modèle : "
-                "ils sont repris tels qu'extraits des documents.)")
+        if len(summaries) > 1 or (quota and len(merged["points"]) > quota):
+            await _condense(analysis, chain, merged, summaries, quota)
+        if quota:
+            merged["details"] = [_detail(it) for it in theme["items"]]  # tout le détail, en annexe
+        if raw and not quota:
+            merged["note"] = (f"{raw} élément{'s' if raw > 1 else ''} de ce thème n'ont pas pu être rédigés par le "
+                              "modèle : ils sont repris tels qu'extraits des documents.")
         done += 1
         per_theme = (time.monotonic() - started) / done
         analysis.eta_at = time.time() + per_theme * (len(themes) - done + 0.5)  # + titre et « En bref »
@@ -583,7 +663,7 @@ async def write_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], theme
         return merged
 
     analysis.step_notes[3] = f"Rédaction thème par thème depuis les passages d'origine (0/{len(themes)})"
-    return await asyncio.gather(*(write_one(t) for t in themes))
+    return await asyncio.gather(*(write_one(t, q) for t, q in zip(themes, quotas)))
 
 
 def _merge_parts(theme: dict[str, Any], parts: list[dict[str, Any]]) -> dict[str, Any]:
@@ -601,6 +681,7 @@ def _merge_parts(theme: dict[str, Any], parts: list[dict[str, Any]]) -> dict[str
             out["quote"], out["quote_by"] = svc._s(t.get("quote")), svc._s(t.get("quote_by"))
         out["actions"] += [a for a in p.get("actions") or [] if isinstance(a, dict)]
     out["summary"] = " ".join(x for x in summaries if x)
+    out["summaries"] = summaries  # résumés des parties, réunis ensuite en un seul (_condense)
     out["nuance"] = " ".join(dict.fromkeys(x for x in nuances if x))
     # Les documents d'où viennent les éléments du thème sont forcément concernés.
     out["documents"] = list(dict.fromkeys(out["documents"] + [i.document for i in theme["items"] if i.document]))
@@ -718,11 +799,16 @@ async def run_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker
     svc._enter(analysis, 2)
     title, themes, unassigned = await classify(analysis, chain, items, topics)
     svc._enter(analysis, 3)
-    written = await write_themes(analysis, chain, themes)
+    # Synthèse courte (par défaut) : longueur bornée, le détail complet passe en annexe.
+    quotas = [0] * len(themes) if analysis.full_length else svc.point_quotas([len(t["items"]) for t in themes], analysis.level)
+    written = await write_themes(analysis, chain, themes, quotas)
     svc._enter(analysis, 4)
     data = await assemble(analysis, chain, title, written)
-    recovered = add_uncovered_points(data, items)
-    data["coverage"] = {"batches": n_batches, "items": len(items), "unassigned": unassigned, "recovered": recovered}
+    short = any(quotas)
+    # Contrôle de couverture : les thèmes limités ont tout leur détail en annexe ; les autres sont vérifiés.
+    recovered = add_uncovered_points(data, [i for t, q in zip(themes, quotas) if not q for i in t["items"]])
+    data["coverage"] = {"batches": n_batches, "items": len(items), "unassigned": unassigned, "recovered": recovered,
+                        "short": short}
     return data
 
 
