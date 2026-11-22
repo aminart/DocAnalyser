@@ -5,45 +5,12 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
-## [2.9.1] — 2026-11-22
+## [2.8.2] — 2026-11-21
 
 ### Modifié
 
-- L'export PDF reprend la mise en page de l'export « Page web » : mêmes couleurs, grand titre, ligne
-  mode · niveau en gris, filet au-dessus de chaque partie, puces avec l'idée en gras, explication et sources
-  (petites, en italique gris) en retrait, citations sur fond doux avec un trait bleu, texte aligné à gauche,
-  annexe sur une nouvelle page et numéro de page en bas. Gras et italique sont rendus, alors qu'ils étaient
-  retirés jusqu'ici. Seul le schéma du parcours reste propre à la page web.
-- Polices DejaVu Sans italique et gras italique ajoutées à l'application pour le PDF.
-
-## [2.9.0] — 2026-11-21
-
-### Modifié
-
-- Gros documents (analyse par lots), mode Synthèse globale, transcription ou notes : la synthèse est désormais
-  courte. Son nombre de points clés est borné selon le niveau : environ 60 points en Synthétique (≈ 5 pages Word),
-  50 en Détaillé (≈ 8 à 10 pages) et 40 en Très détaillé (≈ 12 à 15 pages). Ce budget est réparti entre les
-  thèmes selon leur poids, avec 3 à 8 points par thème. Avant, chaque élément extrait devenait un point clé :
-  un document de 550 pages donnait plus de 100 pages. Un corpus qui tient déjà dans le budget, et tout document
-  analysé en une seule fois, sont rédigés comme avant.
-- Le détail complet n'est pas perdu : tous les éléments extraits restent rangés par thème, avec leur source. À
-  l'écran, on les trouve dans « Détail » sous chaque thème ; à l'export, dans une annexe facultative.
-  « Approfondir ce thème » garde l'annexe.
-- Option « Synthèse complète pour les gros documents » (Lancement) pour retrouver l'ancien comportement.
-- Thème rédigé en plusieurs parties : ses résumés partiels sont réunis en un seul résumé court au lieu d'être
-  mis bout à bout. C'est ce qui faisait commencer les thèmes par un long pavé.
-- Mise en page plus aérée. Dans le Markdown, chaque point a son idée en gras, son explication en dessous et ses
-  sources à part ; un long résumé est coupé en paragraphes. Dans le Word, le gras, l'italique et les citations
-  sont gardés ; l'explication et les sources (petites, en gris) sont en retrait sous la puce, les blocs mieux
-  espacés, et l'annexe commence sur une nouvelle page. Le PDF suit les mêmes retraits.
-- La remarque sur les éléments repris tels qu'extraits s'affiche à part du résumé du thème.
-
-### Ajouté
-
-- Export « Page web (.html) » pour tous les modes. C'est un fichier unique, lisible hors de l'application,
-  imprimable et en thème sombre si le système l'est. L'annexe y est repliée, et le schéma du parcours est
-  dessiné quand le navigateur a accès à Internet.
-- Menu Exporter : case « Avec l'annexe détaillée » quand la synthèse en a une (non cochée par défaut).
+- Design system Night Navy 1.2.1 (au lieu de 1.1.0) : les cases à cocher et boutons radio, s'il y en a, prendront
+  le style commun aux apps de la suite. Rien ne change à l'écran aujourd'hui.
 
 ## [2.8.1] — 2026-11-20
 
