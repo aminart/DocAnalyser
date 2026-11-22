@@ -139,3 +139,44 @@ def test_page_web_parcours_avec_schema():
     md = "# P\n\n## Flux\n\n```mermaid\nflowchart LR\n  a --> b\n```\n\n- A → B"
     page = markdown_to_html("P", md).decode("utf-8")
     assert '<pre class="mermaid">flowchart LR\n  a --&gt; b</pre>' in page and "mermaid@11" in page
+
+
+def test_pdf_comme_la_page_web():
+    import pypdfium2
+
+    from app.services.export_service import markdown_to_pdf
+
+    md = svc.to_markdown(_done(_result()))
+    raw = markdown_to_pdf("Étude", md)
+    assert b"DejaVuSansOblique" in raw  # italiques réels (sources, citations), comme la page web
+    pdf = pypdfium2.PdfDocument(raw)
+    first = pdf[0].get_textpage().get_text_range()
+    assert "Les délais sont trop longs." in first and "Sources : a.pdf Page 3" in first
+    assert "**" not in first and "_Sources" not in first and "<!--" not in first
+    last = pdf[len(pdf) - 1].get_textpage().get_text_range()
+    assert "Délai de 6 semaines" in last and "Délai de 6 semaines" not in first  # annexe sur sa propre page
+    short = pypdfium2.PdfDocument(markdown_to_pdf("Étude", without_annex(md)))
+    assert len(short) == 1
+
+
+def test_parcours_guide_sans_friction_inventee():
+    """Guide utilisateur : seul le parcours est restitué, aucun ressenti ni friction n'est inventé."""
+    from app.services.normalize import QuoteChecker, normalize_journey
+    from app.services.prompts import _full_prompt
+
+    prompt = _full_prompt("flow", "detail", "fr", True)
+    assert "guide utilisateur" in prompt and "Ne déduis jamais une friction" in prompt
+    data = {"title": "Guide", "brief": "B", "phases": [
+        {"name": "Connexion", "mood": "", "sentiment": 0, "does": "Saisit son identifiant.", "touchpoints": ["Portail"],
+         "frictions": [], "opportunities": []},
+        {"name": "Envoi", "mood": "Confiant", "sentiment": 1, "does": "Envoie la demande.", "touchpoints": [],
+         "frictions": [], "opportunities": []}],
+        "flow": {"nodes": [], "edges": []}, "priorities": []}
+    result = normalize_journey(data, ["guide.pdf"], QuoteChecker(""))
+    assert [p["sentiment"] for p in result["phases"]] == [None, 1]  # pas de ressenti « neutre » inventé
+    result["phases"][1].update(mood="", sentiment=None)
+    a = svc.Analysis(id="g", mode="flow", level="detail", model_id="T:m", language="fr", cite=True, documents=[],
+                     created_at=datetime.now(timezone.utc), status="done", title="Guide")
+    a.result = {**result, "flow": {"nodes": [], "edges": []}}
+    md = svc.to_markdown(a)
+    assert "seul le parcours est restitué" in md and "### Étape 1 — Connexion\n" in md and "()" not in md

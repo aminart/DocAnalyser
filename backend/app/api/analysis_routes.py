@@ -218,17 +218,6 @@ def _no_diagram(md_text: str) -> str:
     return re.sub(r"```mermaid\n.*?```\n?", "", md_text, flags=re.S)  # schéma : utile en .md seulement
 
 
-def _plain(md_text: str) -> str:
-    """Allège le Markdown pour les exports Word/PDF (citations, italiques)."""
-    md_text = re.sub(r"```mermaid\n.*?```\n?", "", md_text, flags=re.S)  # schéma : utile en .md seulement
-    out = []
-    for line in md_text.splitlines():
-        line = re.sub(r"^>\s?", "", line)
-        line = re.sub(r"(?<!\w)_(.+?)_(?!\w)", r"\1", line)
-        out.append(line)
-    return "\n".join(out)
-
-
 @router.get("/analyses/{analysis_id}/export")
 async def export_analysis(analysis_id: str, format: Literal["md", "docx", "pdf", "html"] = "md", annex: bool = True) -> Response:
     """annex=false : sans l'annexe détaillée des gros documents (synthèse courte seule)."""
@@ -246,7 +235,7 @@ async def export_analysis(analysis_id: str, format: Literal["md", "docx", "pdf",
     elif format == "html":
         content, media = markdown_to_html(title, markdown), "text/html; charset=utf-8"
     else:
-        content, media = markdown_to_pdf(title, _plain(markdown)), "application/pdf"
+        content, media = markdown_to_pdf(title, _no_diagram(markdown)), "application/pdf"
     return Response(
         content=content,
         media_type=media,

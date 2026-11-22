@@ -33,7 +33,13 @@ MODE_GUIDANCE: dict[str, str] = {
     "flow": (
         "Reconstitue le parcours utilisateur décrit dans les documents : ses étapes, ce que fait l'utilisateur, "
         "ses points de contact, son ressenti, les frictions et les points de sortie. Les opportunités sont "
-        "uniquement les attentes, demandes ou idées d'amélioration exprimées dans les documents."
+        "uniquement les attentes, demandes ou idées d'amélioration exprimées dans les documents. "
+        + "Une friction n'existe que si un document la signale : difficulté, blocage, erreur, abandon ou plainte "
+        "rapportés, ou problème décrit par le document lui-même (rubrique de dépannage, problèmes connus). Ne déduis "
+        "jamais une friction d'une étape qui te paraît compliquée. Si les documents décrivent un parcours sans "
+        "retours d'utilisateurs (guide utilisateur, mode opératoire, procédure, spécification), restitue seulement "
+        "le parcours : frictions, opportunités, ressenti et priorités restent vides, sauf ce que le document dit "
+        "lui-même."
     ),
 }
 
@@ -207,12 +213,12 @@ FLOW_SCHEMA = """{
   "phases": [
     {
       "name": "nom de l'étape",
-      "mood": "ressenti dominant en un mot (ex. Curieux, Hésitant, Perdu, Confiant, Frustré)",
-      "sentiment": 0,
+      "mood": "ressenti exprimé dans les documents, en un mot (ex. Curieux, Hésitant, Perdu, Confiant, Frustré) ; chaîne vide si aucun",
+      "sentiment": "entier de -2 à 2, ou null si aucun ressenti n'est exprimé",
       "does": "ce que fait l'utilisateur à cette étape (1 phrase)",
       "touchpoints": ["points de contact (2 à 4 mots chacun)"],
-      "frictions": ["frictions ou points de rupture (phrase courte)"],
-      "opportunities": ["attentes ou idées d'amélioration exprimées dans les documents (phrase courte)"]
+      "frictions": ["frictions ou points de rupture signalés dans les documents (phrase courte) ; [] si aucun"],
+      "opportunities": ["attentes ou idées d'amélioration exprimées dans les documents (phrase courte) ; [] si aucune"]
     }
   ],
   "flow": {
@@ -268,7 +274,8 @@ def _full_prompt(mode: str, level: str, language: str, cite: bool) -> str:
             MODE_GUIDANCE[mode],
             COMPLETENESS_RULE,
             FLOW_LEVEL_GUIDANCE[level],
-            "« sentiment » est un entier de -2 (très négatif) à 2 (très positif).",
+            "« sentiment » est un entier de -2 (très négatif) à 2 (très positif), ou null si les documents n'expriment "
+            "aucun ressenti à cette étape (« mood » vide). « priorities » est vide ([]) si aucune friction n'est signalée.",
             FLOW_GRAPH_RULES[level],
             _language_rule(language),
             "Schéma JSON attendu :\n" + FLOW_SCHEMA,
