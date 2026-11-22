@@ -5,6 +5,17 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.9.1] — 2026-11-22
+
+### Modifié
+
+- L'export PDF reprend la mise en page de l'export « Page web » : mêmes couleurs, grand titre, ligne
+  mode · niveau en gris, filet au-dessus de chaque partie, puces avec l'idée en gras, explication et sources
+  (petites, en italique gris) en retrait, citations sur fond doux avec un trait bleu, texte aligné à gauche,
+  annexe sur une nouvelle page et numéro de page en bas. Gras et italique sont rendus, alors qu'ils étaient
+  retirés jusqu'ici. Seul le schéma du parcours reste propre à la page web.
+- Polices DejaVu Sans italique et gras italique ajoutées à l'application pour le PDF.
+
 ## [2.9.0] — 2026-11-21
 
 ### Modifié

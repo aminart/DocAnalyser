@@ -125,29 +125,76 @@ def _latin1(text: str) -> str:
     )
 
 
+_FONT_FILES = {"": "DejaVuSans.ttf", "B": "DejaVuSans-Bold.ttf", "I": "DejaVuSans-Oblique.ttf",
+               "BI": "DejaVuSans-BoldOblique.ttf"}
+
+
 def _setup_font(pdf: FPDF) -> tuple[str, Callable[[str], str]]:
     """Police Unicode embarquée (accents, œ, guillemets, alphabets non latins), sinon Helvetica en latin-1."""
-    regular, bold = FONTS_DIR / "DejaVuSans.ttf", FONTS_DIR / "DejaVuSans-Bold.ttf"
-    if regular.is_file() and bold.is_file():
-        pdf.add_font(FONT, "", str(regular))
-        pdf.add_font(FONT, "B", str(bold))
-        return FONT, _clean
+    files = {style: FONTS_DIR / name for style, name in _FONT_FILES.items()}
+    if files[""].is_file() and files["B"].is_file():
+        for style, path in files.items():
+            # Italiques absents (ancienne installation) : le romain les remplace.
+            pdf.add_font(FONT, style, str(path if path.is_file() else files["B" if "B" in style else ""]))
+        return FONT, lambda text: text.replace("`", "")
     return "Helvetica", _latin1
 
 
+# Mêmes couleurs que la page web (thème clair) : le PDF en est la version imprimable.
+INK, BODY, MUTED_RGB = (0x15, 0x17, 0x1C), (0x3A, 0x3F, 0x4B), (0x5A, 0x60, 0x70)
+LINE_RGB, SOFT, ACCENT = (0xE3, 0xE6, 0xEC), (0xF4, 0xF5, 0xF8), (0x33, 0x46, 0xD3)
+_ITALIC = re.compile(r"(?<![\w*])_(.+?)_(?!\w)")
+
+
+class _ReportPdf(FPDF):
+    family = "Helvetica"
+
+    def footer(self) -> None:
+        self.set_y(-12)
+        self.set_font(self.family, size=8)
+        self.set_text_color(*MUTED_RGB)
+        self.cell(0, 6, str(self.page_no()), align="C")
+
+
 def markdown_to_pdf(title: str, md_text: str) -> bytes:
-    pdf = FPDF()
-    pdf.set_margins(15, 15, 15)
-    pdf.set_auto_page_break(auto=True, margin=15)
+    """PDF mis en page comme l'export « Page web » : titres séparés par un filet, puces avec l'idée en gras,
+    explication et sources en retrait, citations sur fond doux avec un trait de couleur, annexe sur une nouvelle page."""
+    pdf = _ReportPdf()
+    pdf.set_margins(20, 18, 20)
+    pdf.set_auto_page_break(auto=True, margin=18)
     family, clean_text = _setup_font(pdf)
+    pdf.family = family
+    unicode_font = family == FONT
     pdf.add_page()
-    usable_w = pdf.epw
+    w = pdf.epw
 
-    pdf.set_font(family, style="B", size=15)
-    pdf.multi_cell(usable_w, 9, clean_text(title), new_x="LMARGIN", new_y="NEXT", wrapmode="CHAR")
-    pdf.ln(4)
+    def md(text: str) -> str:
+        """Gras et italique du Markdown vers le balisage de fpdf2 (**gras**, __italique__)."""
+        text = clean_text(text)
+        if not unicode_font:
+            return text.replace("_", "")
+        text = text.replace("--", "–").replace("__", "_")
+        return _ITALIC.sub(r"__\1__", text)
 
-    pdf.set_font(family, size=10)
+    def write(text: str, size: float = 10.5, color=BODY, style: str = "", indent: float = 0, lh: float = 6,
+              after: float = 0) -> None:
+        pdf.set_font(family, style=style, size=size)
+        pdf.set_text_color(*color)
+        pdf.set_x(pdf.l_margin + indent)
+        pdf.multi_cell(w - indent, lh, md(text), markdown=True, align="L", new_x="LMARGIN", new_y="NEXT")
+        if after:
+            pdf.ln(after)
+
+    def keep(space: float) -> None:
+        """Évite un titre seul en bas de page."""
+        if pdf.get_y() + space > pdf.page_break_trigger:
+            pdf.add_page()
+
+    write(title, size=22, color=INK, style="B", lh=10, after=1)
+    pdf.set_draw_color(*LINE_RGB)
+    # Comme la page web : un filet au-dessus de chaque titre de partie, sauf en haut de l'annexe.
+    page_top, in_annex, list_kind, after_title = False, False, "", True
+
     for raw_line in md_text.splitlines():
         continuation = raw_line.startswith("  ") and raw_line.strip() and not raw_line.lstrip().startswith(("- ", "#"))
         line = raw_line.strip()
@@ -155,35 +202,74 @@ def markdown_to_pdf(title: str, md_text: str) -> bytes:
             continue
         if line == ANNEX_MARK:
             pdf.add_page()
+            in_annex, page_top = True, True
             continue
-        if line.startswith("<!--"):
+        if line.startswith("<!--") or line.startswith("```"):
             continue
-        clean = clean_text(line)
-        pdf.set_x(pdf.l_margin)
-        if continuation:
-            small = clean.startswith("_Sources") or clean.startswith("Sources :")
-            pdf.set_x(pdf.l_margin + 5)
-            pdf.set_font(family, size=8.5 if small else 10)
-            pdf.multi_cell(usable_w - 5, 5 if small else 5.5, clean.strip("_"), new_x="LMARGIN", new_y="NEXT", wrapmode="CHAR")
-            pdf.set_font(family, size=10)
-            if small:
-                pdf.ln(1.5)
-        elif clean.startswith("- "):
-            pdf.ln(1)
-            pdf.multi_cell(usable_w, 5.5, "• " + clean[2:], new_x="LMARGIN", new_y="NEXT", wrapmode="CHAR")
-        elif clean.startswith("## "):
-            pdf.ln(3)
-            pdf.set_font(family, style="B", size=12)
-            pdf.multi_cell(usable_w, 7, clean[3:], new_x="LMARGIN", new_y="NEXT", wrapmode="CHAR")
-            pdf.set_font(family, size=10)
-        elif clean.startswith("### "):
+        is_list = line.startswith("- ") or bool(re.match(r"\d+\. ", line))
+        if list_kind and not is_list and not continuation:
             pdf.ln(2)
-            pdf.set_font(family, style="B", size=11)
-            pdf.multi_cell(usable_w, 6, clean[4:], new_x="LMARGIN", new_y="NEXT", wrapmode="CHAR")
-            pdf.set_font(family, size=10)
+            list_kind = ""
+        if after_title and line.startswith("_") and not line.startswith("_Synthèse"):
+            write(line, size=9.5, color=MUTED_RGB, lh=5.5, after=4)  # mode · niveau · documents · modèle
+            after_title = False
+            continue
+        after_title = False
+        if line.startswith("## "):
+            keep(30)
+            if not page_top:
+                pdf.ln(5)
+                pdf.line(pdf.l_margin, pdf.get_y(), pdf.l_margin + w, pdf.get_y())
+                pdf.ln(6)
+            page_top = False
+            write(line[3:], size=15, color=INK, style="B", lh=8, after=3)
+        elif line.startswith("### "):
+            keep(22)
+            pdf.ln(3)
+            write(line[4:], size=12.5, color=INK, style="B", lh=7, after=2)
+        elif continuation:
+            if line.startswith("_Sources"):
+                write(line.strip("_"), size=8.5, color=MUTED_RGB, style="I", indent=6, lh=4.8, after=1)
+            else:
+                write(line, indent=6, lh=6)
+        elif is_list:
+            numbered = not line.startswith("- ")
+            list_kind = "ol" if numbered else "ul"
+            mark, text = (line.split(" ", 1)[0], line.split(" ", 1)[1]) if numbered else ("•", line[2:])
+            size, lh = (9.5, 5.4) if in_annex else (10.5, 6)
+            pdf.ln(0.6 if in_annex else 2.2)
+            keep(lh * 2)
+            pdf.set_font(family, style="B" if not numbered else "", size=size)
+            pdf.set_text_color(*(MUTED_RGB if numbered else INK))
+            pdf.set_x(pdf.l_margin + (0 if numbered else 1.2))
+            pdf.cell(6 if numbered else 4.8, lh, mark if unicode_font or numbered else "-")
+            pdf.set_font(family, size=size)
+            pdf.set_text_color(*BODY)
+            pdf.set_x(pdf.l_margin + 6)
+            pdf.multi_cell(w - 6, lh, md(text), markdown=True, align="L", new_x="LMARGIN", new_y="NEXT")
+        elif line.startswith(">"):
+            # Citation déjà en italique : les italiques internes (notes de vérification) restent en italique.
+            text, pad, lh = md(line.lstrip("> ")).replace("__", ""), 4.5, 6.2
+            pdf.set_font(family, style="I", size=11)
+            lines = pdf.multi_cell(w - 2 * pad - 1.2, lh, text, markdown=True, align="L", dry_run=True, output="LINES")
+            height = len(lines) * lh + 2 * pad
+            pdf.ln(2)
+            keep(height)
+            x, y = pdf.l_margin, pdf.get_y()
+            pdf.set_fill_color(*SOFT)
+            pdf.rect(x, y, w, height, style="F", round_corners=True, corner_radius=2.5)
+            pdf.set_fill_color(*ACCENT)
+            pdf.rect(x, y, 1.2, height, style="F")
+            pdf.set_text_color(*INK)
+            pdf.set_xy(x + 1.2 + pad, y + pad)
+            pdf.multi_cell(w - 2 * pad - 1.2, lh, text, markdown=True, align="L", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_y(y + height)
+            pdf.ln(4)
+        elif line.startswith("_Synthèse générée"):
+            pdf.ln(4)
+            write(line, size=9, color=MUTED_RGB, lh=5)
         else:
-            pdf.multi_cell(usable_w, 5.5, clean, new_x="LMARGIN", new_y="NEXT", wrapmode="CHAR")
-            pdf.ln(1.5)
+            write(line, lh=6, after=3)
 
     return bytes(pdf.output())
 

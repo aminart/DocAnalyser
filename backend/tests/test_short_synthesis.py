@@ -139,3 +139,21 @@ def test_page_web_parcours_avec_schema():
     md = "# P\n\n## Flux\n\n```mermaid\nflowchart LR\n  a --> b\n```\n\n- A → B"
     page = markdown_to_html("P", md).decode("utf-8")
     assert '<pre class="mermaid">flowchart LR\n  a --&gt; b</pre>' in page and "mermaid@11" in page
+
+
+def test_pdf_comme_la_page_web():
+    import pypdfium2
+
+    from app.services.export_service import markdown_to_pdf
+
+    md = svc.to_markdown(_done(_result()))
+    raw = markdown_to_pdf("Étude", md)
+    assert b"DejaVuSansOblique" in raw  # italiques réels (sources, citations), comme la page web
+    pdf = pypdfium2.PdfDocument(raw)
+    first = pdf[0].get_textpage().get_text_range()
+    assert "Les délais sont trop longs." in first and "Sources : a.pdf Page 3" in first
+    assert "**" not in first and "_Sources" not in first and "<!--" not in first
+    last = pdf[len(pdf) - 1].get_textpage().get_text_range()
+    assert "Délai de 6 semaines" in last and "Délai de 6 semaines" not in first  # annexe sur sa propre page
+    short = pypdfium2.PdfDocument(markdown_to_pdf("Étude", without_annex(md)))
+    assert len(short) == 1
