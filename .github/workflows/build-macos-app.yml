@@ -78,7 +78,10 @@ jobs:
           MACOSX_DEPLOYMENT_TARGET: "11.0"
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt pyinstaller
+          # Paquets déjà compilés seulement pour cryptography : compilé ici (Mac Intel, sans paquet tout prêt pour
+          # sa dernière version), il se lie à l'OpenSSL de Homebrew, plus récent que celui embarqué par l'app.
+          pip install --prefer-binary --only-binary cryptography -r backend/requirements.txt pyinstaller
+          pip list | grep -i -E "^(cryptography|pydantic.core) "
           pyinstaller --noconfirm DocAnalyser.spec
           # Signature locale de l'ensemble (obligatoire sur les Mac Apple), vérifiée
           codesign --force --deep --sign - dist/DocAnalyser.app
