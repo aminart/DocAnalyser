@@ -160,13 +160,15 @@ def normalize_journey(data: dict[str, Any], doc_names: list[str], checker: Quote
     for raw in data.get("phases") or []:
         if not isinstance(raw, dict) or not _s(raw.get("name")):
             continue
+        mood = _s(raw.get("mood"))
         try:
-            sentiment = max(-2, min(2, int(round(float(raw.get("sentiment") or 0)))))
-        except (TypeError, ValueError):
-            sentiment = 0
+            # Aucun ressenti exprimé (guide, procédure) : pas de valeur inventée.
+            sentiment = max(-2, min(2, int(round(float(raw["sentiment"]))))) if mood else None
+        except (KeyError, TypeError, ValueError):
+            sentiment = None
         phases.append({
             "name": _s(raw.get("name")),
-            "mood": _s(raw.get("mood")),
+            "mood": mood,
             "sentiment": sentiment,
             "does": _s(raw.get("does")),
             "touchpoints": _str_list(raw.get("touchpoints")),

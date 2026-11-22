@@ -15,6 +15,11 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
   annexe sur une nouvelle page et numéro de page en bas. Gras et italique sont rendus, alors qu'ils étaient
   retirés jusqu'ici. Seul le schéma du parcours reste propre à la page web.
 - Polices DejaVu Sans italique et gras italique ajoutées à l'application pour le PDF.
+- Mode Parcours : une friction n'apparaît que si un document la signale (difficulté, blocage, erreur, abandon
+  ou plainte rapportés, rubrique de dépannage). Un guide utilisateur, un mode opératoire ou une procédure sans
+  retours d'utilisateurs donne seulement le parcours. Aucun ressenti n'est inventé : le ressenti vaut « aucun »
+  au lieu de « neutre ». À l'écran, les lignes Ressenti, Frictions et Opportunités vides sont masquées, et une
+  mention indique que seul le parcours est restitué (aussi dans les exports).
 
 ## [2.9.0] — 2026-11-21
 

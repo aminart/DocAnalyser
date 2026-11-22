@@ -165,8 +165,12 @@ def to_markdown(analysis: Analysis) -> str:
                 lines.append("")
     else:
         lines += ["## Carte du parcours", ""]
-        for i, ph in enumerate(r.get("phases", []), start=1):
-            lines += [f"### Étape {i} — {ph['name']} ({ph['mood']})", "", ph["does"], ""]
+        phases = r.get("phases", [])
+        if not any(ph["frictions"] or ph["opportunities"] or ph["mood"] for ph in phases) and not r.get("priorities"):
+            lines += ["_Les documents ne signalent ni friction ni ressenti : seul le parcours est restitué._", ""]
+        for i, ph in enumerate(phases, start=1):
+            mood = f" ({ph['mood']})" if ph["mood"] else ""
+            lines += [f"### Étape {i} — {ph['name']}{mood}", "", ph["does"], ""]
             if ph["touchpoints"]:
                 lines.append(f"- **Points de contact :** {', '.join(ph['touchpoints'])}")
             for f in ph["frictions"]:

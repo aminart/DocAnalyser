@@ -133,7 +133,7 @@ export interface ThemesResult {
 export interface JourneyPhase {
   name: string;
   mood: string;
-  sentiment: number; // -2 … 2
+  sentiment: number | null; // -2 … 2 ; null : aucun ressenti exprimé dans les documents
   does: string;
   touchpoints: string[];
   frictions: string[];
