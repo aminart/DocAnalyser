@@ -10,9 +10,14 @@ from app.core import connexions
 
 # Depuis DocAnalyser.exe (PyInstaller) : ressources dans l'exe, .env facultatif à côté de l'exe, données
 # (documents importés, historique) dans %APPDATA%\DocAnalyser, car le dossier de l'exe peut être en lecture seule.
+# Depuis DocAnalyser.app (Mac) : l'exécutable est à l'intérieur de l'app (signée, à ne pas modifier), donc le .env
+# facultatif et les données sont dans ~/Library/Application Support/DocAnalyser.
 EMPAQUETE = bool(getattr(sys, "frozen", False))
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
-APP_DIR = Path(sys.executable).resolve().parent if EMPAQUETE else BACKEND_DIR
+if EMPAQUETE and sys.platform == "darwin":
+    APP_DIR = connexions.dossier_config()
+else:
+    APP_DIR = Path(sys.executable).resolve().parent if EMPAQUETE else BACKEND_DIR
 ENV_PATH = APP_DIR / ".env"
 
 

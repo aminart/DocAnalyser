@@ -5,6 +5,22 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+### Ajouté
+
+- Version Mac : `DocAnalyser.app`, livrée en image disque pour les Mac à puce Apple (`-mac-apple.dmg`) et les Mac
+  Intel (`-mac-intel.dmg`), jointe automatiquement à chaque release (workflow « Build macOS app », qui vérifie
+  aussi que l'app démarre). Un double-clic ouvre une fenêtre du Terminal, l'équivalent de la fenêtre noire de
+  Windows : la fermer arrête l'application. Icône Mac `icone/docanalyser.icns`. L'app n'est pas signée par un
+  développeur Apple : au premier lancement, l'autoriser dans Réglages Système › Confidentialité et sécurité
+  (voir README).
+- Sur Mac, les clés API sont rangées dans le trousseau macOS (au lieu d'être seulement encodées), et retirées du
+  trousseau quand une clé est remplacée ou une connexion supprimée. Données et connexions dans
+  `~/Library/Application Support/DocAnalyser` (un ancien `~/.config/docanalyser` reste utilisé s'il existe).
+
+### Modifié
+
+- Écran Réglages : la protection des clés indiquée est celle du poste (compte Windows ou trousseau macOS).
+
 ## [2.9.1] — 2026-11-22
 
 ### Modifié

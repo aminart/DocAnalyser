@@ -32,6 +32,7 @@ def test_chemins_depuis_l_exe(monkeypatch, tmp_path):
     import sys
 
     monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(sys, "executable", str(tmp_path / "Programmes" / "DocAnalyser.exe"))
     monkeypatch.setenv("DOCANALYSER_CONFIG", str(tmp_path / "AppData" / "DocAnalyser"))
     monkeypatch.delenv("STORAGE_DIR", raising=False)

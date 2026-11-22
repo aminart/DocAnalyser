@@ -198,7 +198,7 @@ const ConnectionEditor: React.FC<{
         </Field>
 
         {form.api_key === null ? (
-          <Field label="Clé API" hint="Chiffrée avec votre compte Windows : elle n'est jamais réaffichée en clair.">
+          <Field label="Clé API" hint="Protégée sur ce poste (compte Windows, trousseau macOS) : elle n'est jamais réaffichée en clair.">
             <div className={`flex min-h-[48px] items-center gap-3 rounded-lg border bg-surface-2 pl-3.5 pr-2 ${failed === 'api_key' ? 'border-[1.5px] border-danger' : 'border-line-strong'}`}>
               <Svg d={I.lock} className="text-ink-muted" />
               <span className="flex-1 text-[15px] tracking-[0.08em] text-ink-body">•••• •••• •••• {existing?.api_key_hint}</span>
@@ -524,7 +524,7 @@ export const SettingsScreen: React.FC = () => {
       <div className="flex gap-3 rounded-[10px] border border-line bg-surface px-5 py-4">
         <Svg d={I.info} className="mt-0.5 shrink-0 text-ink-muted" />
         <p className="m-0 text-[13px] leading-relaxed text-ink-muted">
-          Connexions enregistrées dans <b className="font-medium text-ink-body">{state.storage_dir}</b> ; les clés sont chiffrées avec votre compte Windows. Pour un déploiement sur plusieurs postes, les fournisseurs déclarés dans un fichier <b className="font-medium text-ink-body">.env</b> s'ajoutent à cet écran.
+          Connexions enregistrées dans <b className="font-medium text-ink-body">{state.storage_dir}</b> ; les clés sont {state.key_protection ?? 'chiffrées avec votre compte Windows'}. Pour un déploiement sur plusieurs postes, les fournisseurs déclarés dans un fichier <b className="font-medium text-ink-body">.env</b> s'ajoutent à cet écran.
         </p>
       </div>
     </main>
