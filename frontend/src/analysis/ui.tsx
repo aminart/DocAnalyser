@@ -285,8 +285,10 @@ export const ThemeToggle: React.FC = () => {
 const formatDate = (iso: string) =>
   new Date(iso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
 
-const ExportMenu: React.FC<{ analysisId: string }> = ({ analysisId }) => {
+const ExportMenu: React.FC<{ analysisId: string; hasAnnex?: boolean }> = ({ analysisId, hasAnnex = false }) => {
   const [open, setOpen] = useState(false);
+  // Synthèse courte d'un gros document : l'annexe détaillée (tous les éléments extraits) est facultative.
+  const [annex, setAnnex] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -322,21 +324,28 @@ const ExportMenu: React.FC<{ analysisId: string }> = ({ analysisId }) => {
         >
           {(
             [
-              ['md', 'Markdown (.md)'],
               ['docx', 'Word (.docx)'],
               ['pdf', 'PDF (.pdf)'],
+              ['html', 'Page web (.html)'],
+              ['md', 'Markdown (.md)'],
             ] as const
           ).map(([fmt, label]) => (
             <a
               key={fmt}
               role="menuitem"
-              href={analysisApi.exportUrl(analysisId, fmt)}
+              href={analysisApi.exportUrl(analysisId, fmt, !hasAnnex || annex)}
               onClick={() => setOpen(false)}
               className="rounded-lg px-3 py-2 text-sm text-ink no-underline hover:bg-bg"
             >
               {label}
             </a>
           ))}
+          {hasAnnex && (
+            <label className="mt-1 flex cursor-pointer items-center gap-2 border-t border-line px-3 pb-1 pt-2.5 text-[13px] text-ink-body">
+              <input type="checkbox" checked={annex} onChange={(e) => setAnnex(e.target.checked)} />
+              Avec l'annexe détaillée
+            </label>
+          )}
         </div>
       )}
     </div>
@@ -395,7 +404,10 @@ export const ReportBanner: React.FC<{
                 {copied ? 'Copié' : 'Copier'}
               </button>
             )}
-            <ExportMenu analysisId={analysis.id} />
+            <ExportMenu
+              analysisId={analysis.id}
+              hasAnnex={analysis.result?.kind === 'themes' && analysis.result.themes.some((t) => t.details?.length)}
+            />
             <button
               type="button"
               onClick={onNewAnalysis}
@@ -485,5 +497,7 @@ export const CoverageNote: React.FC<{ coverage?: Coverage | null }> = ({ coverag
       {coverage.unassigned > 0 && ` ${coverage.unassigned} éléments sans thème dédié sont regroupés dans « Autres points ».`}
       {coverage.recovered > 0 &&
         ` ${coverage.recovered} éléments que la rédaction n'avait pas repris ont été rajoutés tels qu'extraits.`}
+      {coverage.short &&
+        ' Synthèse courte : chaque thème garde ses points essentiels, tous les éléments extraits restent consultables dans « Détail » et dans l’annexe de l’export.'}
     </p>
   ) : null;

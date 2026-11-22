@@ -44,7 +44,7 @@ from app.services.normalize import (  # noqa: F401
 from app.services.parser_service import AnchoredTextBlock, MultiFormatDocumentParser, UnsupportedFormat, check_format
 from app.services.prompts import (  # noqa: F401
     BASE_RULES, COMPLETENESS_RULE, LEVEL_GUIDANCE, LEVEL_LABELS, MODE_GUIDANCE, MODE_LABELS, _full_prompt,
-    _language_rule, _outline_prompt,
+    _language_rule, _outline_prompt, point_quotas, short_theme_rule,
 )
 from app.services.report_markdown import to_markdown, to_mermaid  # noqa: F401
 
@@ -474,6 +474,8 @@ class Analysis:
     activity: dict[str, Any] = field(default_factory=dict)
     # Thème en cours d'approfondissement (deepen_service) : {"theme", "title", "status", "error"} ; vide = aucun
     deepening: dict[str, Any] = field(default_factory=dict)
+    # Gros documents : False = synthèse courte (longueur bornée, détail en annexe) ; True = tout rédiger
+    full_length: bool = False
 
     def step_details(self) -> list[str]:
         total_pages = sum(d.pages for d in self.documents)
@@ -533,6 +535,7 @@ class Analysis:
             "deepening": self.deepening or None,
             "markdown_edited": self.markdown_edited,
             "vision_model_id": self.vision_model_id,
+            "full_length": self.full_length,
             "eta_seconds": max(0, round(self.eta_at - time.time())) if self.status == "running" and self.eta_at else None,
             "activity": self._activity() if self.status == "running" else None,
         }
@@ -565,7 +568,7 @@ ANALYSES: dict[str, Analysis] = {}
 
 def create_analysis(
     document_ids: list[str], mode: str, level: str, model_id: str, language: str, cite: bool,
-    sections: dict[str, str] | None = None, vision_model_id: str = "",
+    sections: dict[str, str] | None = None, vision_model_id: str = "", full_length: bool = False,
 ) -> Analysis:
     """sections : pages (ou slides) à analyser par document, par exemple {id: "12-45, 80"} ; absent = tout."""
     if mode not in MODE_LABELS:
@@ -600,7 +603,7 @@ def create_analysis(
     analysis = Analysis(
         id=str(uuid.uuid4()), mode=mode, level=level, model_id=model_id,
         language=language, cite=cite, documents=docs, created_at=datetime.now(timezone.utc),
-        vision_model_id=vision_model_id,
+        vision_model_id=vision_model_id, full_length=full_length,
     )
     ANALYSES[analysis.id] = analysis
     store.save_analysis(analysis)
@@ -616,7 +619,7 @@ def retry_analysis(old: Analysis) -> Analysis:
     if old.status not in ("failed", "cancelled"):
         raise AnalysisError("Seule une analyse échouée ou annulée peut être reprise.")
     new = create_analysis([d.id for d in old.documents], old.mode, old.level, old.model_id, old.language, old.cite,
-                          vision_model_id=old.vision_model_id)
+                          vision_model_id=old.vision_model_id, full_length=old.full_length)
     delete_analysis(old)  # ses documents servent à la nouvelle : ils sont gardés
     return new
 
