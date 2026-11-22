@@ -98,6 +98,7 @@ def _tout() -> dict[str, Any]:
         "connections": _depuis_env() + _depuis_studiodock() + [_publique(c) for c in connexions.lister()],
         "env_file": str(ENV_PATH) if ENV_PATH.is_file() else None,
         "storage_dir": str(connexions.dossier_config()),
+        "key_protection": connexions.protection(),
         # Studio Dock garde à DocAnalyser sa configuration propre : ses connexions ne sont pas reprises
         "studiodock_own": studiodock_ia.garde_sa_configuration(svc.APP_ID),
     }

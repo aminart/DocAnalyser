@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -52,7 +53,27 @@ def _open_when_ready(url: str, port: int) -> None:
         time.sleep(0.5)
 
 
+def _ouvrir_dans_le_terminal(argv: list[str]) -> bool:
+    """Mac, double-clic sur DocAnalyser.app : relance l'application dans une fenêtre du Terminal.
+
+    Comme la fenêtre noire de l'exe Windows, elle montre l'adresse et les messages, et la fermer arrête
+    l'application. Sans elle, l'app tournerait sans fenêtre ni moyen simple de l'arrêter. Pas de relance quand des
+    options sont données (portail Studio Dock, --no-browser…) ou quand on est déjà dans un terminal.
+    """
+    if sys.platform != "darwin" or not getattr(sys, "frozen", False) or argv:
+        return False
+    try:
+        if sys.stdin is not None and sys.stdin.isatty():
+            return False
+        subprocess.run(["/usr/bin/open", "-a", "Terminal", sys.executable], check=True, timeout=30)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False  # Terminal indisponible : l'application démarre quand même, sans fenêtre
+    return True
+
+
 def main(argv: list[str] | None = None) -> None:
+    # Ancien macOS : le Finder ajoute -psn_… au lancement d'une app
+    argv = [a for a in (sys.argv[1:] if argv is None else argv) if not a.startswith("-psn_")]
     parser = argparse.ArgumentParser(prog="launcher.py", description=APP_NAME)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"port d'écoute (défaut {DEFAULT_PORT})")
     parser.add_argument("--no-browser", action="store_true", help="ne pas ouvrir le navigateur (lancement par le portail)")
@@ -65,6 +86,8 @@ def main(argv: list[str] | None = None) -> None:
         print(f"{APP_NAME} est déjà lancée : {url}")
         if not args.no_browser:
             webbrowser.open(url)
+        return
+    if _ouvrir_dans_le_terminal(argv):
         return
     if not _port_is_free(args.port):
         print(f"Le port {args.port} est déjà utilisé par une autre application : {APP_NAME} ne peut pas démarrer.",

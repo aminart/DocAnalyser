@@ -304,6 +304,8 @@ export interface ConnectionsState {
   connections: Connection[];
   env_file: string | null;
   storage_dir: string;
+  /** Façon dont les clés sont protégées sur ce poste (compte Windows, trousseau macOS…). */
+  key_protection?: string;
   /** Studio Dock laisse à DocAnalyser sa configuration propre. */
   studiodock_own?: boolean;
   created?: string;

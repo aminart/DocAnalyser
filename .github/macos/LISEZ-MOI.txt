@@ -1,0 +1,22 @@
+DocAnalyser pour Mac
+====================
+
+1. Installer : glisser DocAnalyser dans le dossier Applications (ci-contre).
+
+2. Premier lancement : l'application n'est pas signée par un développeur Apple, donc macOS la bloque une
+   première fois (« Apple n'a pas pu vérifier que DocAnalyser ne contient pas de logiciel malveillant »).
+   - macOS 15 (Sequoia) et suivants : cliquer « Terminé », ouvrir Réglages Système › Confidentialité et
+     sécurité, descendre jusqu'à « DocAnalyser a été bloqué… » et cliquer « Ouvrir quand même », puis
+     confirmer avec le mot de passe du Mac.
+   - macOS 14 (Sonoma) et antérieurs : Ctrl-clic (ou clic droit) sur DocAnalyser dans Applications, « Ouvrir »,
+     puis « Ouvrir » encore.
+   - Ou, dans le Terminal : xattr -dr com.apple.quarantine /Applications/DocAnalyser.app
+   Les lancements suivants se font par un simple double-clic.
+
+3. Utilisation : une fenêtre du Terminal s'ouvre et le navigateur affiche http://127.0.0.1:8020.
+   Garder la fenêtre du Terminal ouverte pendant l'utilisation ; la fermer arrête l'application.
+   Les connexions aux modèles se règlent dans l'onglet Réglages. Les clés API sont rangées dans le trousseau
+   macOS ; documents, historique et .env facultatif sont dans ~/Library/Application Support/DocAnalyser.
+
+Deux images disque existent : « mac-apple » pour les Mac à puce Apple (M1, M2, M3, M4…), « mac-intel » pour
+les Mac Intel. Menu Pomme › À propos de ce Mac indique la puce.

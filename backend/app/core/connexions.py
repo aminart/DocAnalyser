@@ -3,9 +3,11 @@
 Même logique que SpecGen et Audit ergonomique, étendue à plusieurs connexions :
 - chaque connexion est compatible OpenAI (passerelle interne, vLLM, Ollama, LM Studio…) : un nom, une adresse,
   une clé facultative, un certificat facultatif et sa liste de modèles ;
-- la clé est chiffrée avec le compte Windows (DPAPI) et n'est jamais renvoyée en clair à l'interface ;
+- la clé est chiffrée avec le compte Windows (DPAPI) ou rangée dans le trousseau macOS, et n'est jamais renvoyée
+  en clair à l'interface ;
 - le certificat (.crt, PEM ou DER) est copié dans le dossier de l'utilisateur ;
-- tout est enregistré dans %APPDATA%\\DocAnalyser (DOCANALYSER_CONFIG pour un autre dossier).
+- tout est enregistré dans %APPDATA%\\DocAnalyser (Windows) ou ~/Library/Application Support/DocAnalyser (Mac),
+  DOCANALYSER_CONFIG pour un autre dossier.
 
 Les fournisseurs du fichier .env (CUSTOM_LLM, CUSTOM_LLM_2, GEMINI, ANTHROPIC) restent valables : ils s'ajoutent
 aux connexions de l'écran, en lecture seule, pour un déploiement sur plusieurs postes.
@@ -15,6 +17,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import subprocess
 import sys
 import threading
 import uuid
@@ -35,6 +38,12 @@ def dossier_config() -> Path:
         return Path(autre).expanduser()
     if sys.platform == "win32":
         return Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "DocAnalyser"
+    if sys.platform == "darwin":
+        # Emplacement habituel des données d'une app Mac. Un ancien dossier ~/.config/docanalyser (lancement
+        # depuis les sources avant la version Mac) reste utilisé tant que le nouveau n'existe pas.
+        mac = Path.home() / "Library" / "Application Support" / "DocAnalyser"
+        ancien = Path.home() / ".config" / "docanalyser"
+        return ancien if ancien.is_dir() and not mac.exists() else mac
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "docanalyser"
 
 
@@ -61,6 +70,11 @@ class Connexion:
 
 
 # --- Chiffrement de la clé (même code que SpecGen et Audit ergonomique) -----------------------------------
+# Windows : DPAPI (compte Windows). Mac : trousseau de session, via l'outil « security » du système (aucune
+# dépendance, et aucune demande d'autorisation à chaque mise à jour de l'app, qui n'est pas signée). Ailleurs, ou
+# si le trousseau refuse : la clé est seulement encodée dans connexions.json (développement sous Linux).
+
+SERVICE_TROUSSEAU = "DocAnalyser"
 
 if sys.platform == "win32":
     import ctypes
@@ -84,25 +98,56 @@ if sys.platform == "win32":
         finally:
             ctypes.windll.kernel32.LocalFree(sortie.pbData)
 
-    def chiffrer(valeur: str) -> dict[str, str]:
-        return {"scheme": "dpapi", "data": base64.b64encode(_dpapi(valeur.encode("utf-8"), True)).decode("ascii")}
 
-else:
-    # Développement sous Linux / macOS : pas de coffre du système branché, la clé est seulement encodée.
-    def chiffrer(valeur: str) -> dict[str, str]:
-        return {"scheme": "plain", "data": base64.b64encode(valeur.encode("utf-8")).decode("ascii")}
+def _trousseau(*arguments: str) -> str | None:
+    """Commande « security » du Mac ; sa sortie, ou None si elle échoue (autre système, trousseau verrouillé…)."""
+    if sys.platform != "darwin":
+        return None
+    try:
+        resultat = subprocess.run(["/usr/bin/security", *arguments], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return resultat.stdout if resultat.returncode == 0 else None
+
+
+def protection() -> str:
+    """Comment les clés sont protégées sur ce poste, pour l'écran Réglages."""
+    if sys.platform == "win32":
+        return "chiffrées avec votre compte Windows"
+    if sys.platform == "darwin":
+        return "rangées dans le trousseau macOS (Trousseaux d'accès)"
+    return "seulement encodées (aucun coffre du système sur ce poste)"
+
+
+def chiffrer(valeur: str) -> dict[str, str]:
+    if sys.platform == "win32":
+        return {"scheme": "dpapi", "data": base64.b64encode(_dpapi(valeur.encode("utf-8"), True)).decode("ascii")}
+    compte = f"cle-{uuid.uuid4().hex[:12]}"
+    if _trousseau("add-generic-password", "-U", "-s", SERVICE_TROUSSEAU, "-a", compte, "-l",
+                  "DocAnalyser : clé API", "-w", valeur) is not None:
+        return {"scheme": "keychain", "data": compte}
+    return {"scheme": "plain", "data": base64.b64encode(valeur.encode("utf-8")).decode("ascii")}
 
 
 def dechiffrer(stocke: dict[str, str] | None) -> str:
     if not stocke:
         return ""
     try:
+        if stocke.get("scheme") == "keychain":
+            lu = _trousseau("find-generic-password", "-s", SERVICE_TROUSSEAU, "-a", stocke["data"], "-w")
+            return lu.rstrip("\n") if lu else ""
         brut = base64.b64decode(stocke["data"])
         if stocke.get("scheme") == "dpapi":
             return _dpapi(brut, False).decode("utf-8") if sys.platform == "win32" else ""
         return brut.decode("utf-8")
     except (OSError, ValueError, KeyError):
         return ""  # chiffrée par un autre compte Windows, ou illisible : considérée comme absente
+
+
+def oublier(stocke: dict[str, str] | None) -> None:
+    """Retire du trousseau une clé remplacée ou supprimée (rien à faire pour les autres façons de la garder)."""
+    if stocke and stocke.get("scheme") == "keychain" and stocke.get("data"):
+        _trousseau("delete-generic-password", "-s", SERVICE_TROUSSEAU, "-a", stocke["data"])
 
 
 # --- Lecture et écriture --------------------------------------------------------------------------------
@@ -177,6 +222,7 @@ def modifier(id_: str, kind: Kind, name: str, api_base: str, api_key: str | None
         c.kind, c.name = kind, name.strip() or _nom_defaut(kind)
         c.api_base = api_base.strip().rstrip("/")
         if api_key is not None:
+            oublier(c.api_key)
             c.api_key = chiffrer(api_key.strip()) if api_key.strip() else None
         c.models = nettoyer_modeles(models)
         c.context_tokens = context_tokens or CONTEXT_DEFAULT[kind]
@@ -187,7 +233,11 @@ def modifier(id_: str, kind: Kind, name: str, api_base: str, api_key: str | None
 
 def supprimer(id_: str) -> None:
     with _VERROU:
-        _ecrire([c for c in lister() if c.id != id_])
+        connexions = lister()
+        for c in connexions:
+            if c.id == id_:
+                oublier(c.api_key)
+        _ecrire([c for c in connexions if c.id != id_])
         chemin_certificat(id_).unlink(missing_ok=True)
 
 

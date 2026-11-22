@@ -1,6 +1,8 @@
-# Recette PyInstaller de DocAnalyser.exe (workflow « Build Windows exe », ou : pyinstaller --noconfirm DocAnalyser.spec).
+# Recette PyInstaller de DocAnalyser.exe (Windows) et DocAnalyser.app (Mac) : workflows « Build Windows exe » et
+# « Build macOS app », ou à la main : pyinstaller --noconfirm DocAnalyser.spec (sur la machine visée).
 # Prérequis : l'interface compilée (cd frontend && npm ci && npm run build).
 import os
+import sys
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all, collect_submodules
@@ -62,15 +64,47 @@ a = Analysis(
               "numpy", "pandas"],
 )
 pyz = PYZ(a.pure)
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
-    [],
-    name="DocAnalyser",
-    icon=os.path.join(SPECPATH, "icone", "docanalyser.ico"),
-    version=version_info,
-    console=True,
-    upx=False,
-)
+
+if sys.platform == "darwin":
+    # Mac : application DocAnalyser.app (dossier, plus rapide à démarrer qu'un exécutable unique), signée
+    # localement (« ad hoc ») par PyInstaller : sans compte Apple Developer, ni signature d'éditeur ni notarisation.
+    exe = EXE(
+        pyz,
+        a.scripts,
+        [],
+        exclude_binaries=True,
+        name="DocAnalyser",
+        console=False,
+        argv_emulation=False,
+        upx=False,
+    )
+    coll = COLLECT(exe, a.binaries, a.datas, name="DocAnalyser", upx=False)
+    app = BUNDLE(
+        coll,
+        name="DocAnalyser.app",
+        icon=os.path.join(SPECPATH, "icone", "docanalyser.icns"),
+        bundle_identifier="io.github.aminart.docanalyser",
+        version=VERSION,
+        info_plist={
+            "CFBundleName": "DocAnalyser",
+            "CFBundleDisplayName": "DocAnalyser",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
+            "LSMinimumSystemVersion": "11.0",
+            "NSHighResolutionCapable": True,
+            "NSHumanReadableCopyright": "DocAnalyser - synthèse de documents par thèmes",
+        },
+    )
+else:
+    exe = EXE(
+        pyz,
+        a.scripts,
+        a.binaries,
+        a.datas,
+        [],
+        name="DocAnalyser",
+        icon=os.path.join(SPECPATH, "icone", "docanalyser.ico"),
+        version=version_info,
+        console=True,
+        upx=False,
+    )

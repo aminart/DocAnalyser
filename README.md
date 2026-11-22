@@ -16,7 +16,19 @@ Interface : design system commun **Night Navy** (le même que SpecGen et Audit e
 
 Depuis l'exe, les documents importés, l'historique et les connexions sont enregistrés dans `%APPDATA%\DocAnalyser` ; un fichier `.env` facultatif se place **à côté de l'exe**. Windows SmartScreen peut afficher « Windows a protégé votre ordinateur » au premier lancement (exécutable non signé) : « Informations complémentaires » puis « Exécuter quand même ».
 
-### Sous Linux / macOS
+### Mac : l'application
+
+`DocAnalyser.app`, sans Python ni Node.js à installer. Depuis la dernière release GitHub du dépôt, télécharger l'image disque qui correspond au Mac (menu Pomme › À propos de ce Mac) : `DocAnalyser-X.Y.Z-mac-apple.dmg` pour une puce Apple (M1, M2, M3, M4…), `DocAnalyser-X.Y.Z-mac-intel.dmg` pour un Mac Intel. L'ouvrir et glisser DocAnalyser dans **Applications**. macOS 11 ou plus récent.
+
+**Premier lancement** : l'app n'est pas signée par un développeur Apple (pas de compte Apple Developer, donc ni signature d'éditeur ni notarisation). macOS la bloque une première fois avec « Apple n'a pas pu vérifier que DocAnalyser ne contient pas de logiciel malveillant ». Pour l'autoriser, une seule fois :
+
+- macOS 15 (Sequoia) et suivants : cliquer « Terminé », puis *Réglages Système › Confidentialité et sécurité*, en bas « DocAnalyser a été bloqué… » › **Ouvrir quand même**, et confirmer avec le mot de passe du Mac ;
+- macOS 14 (Sonoma) et antérieurs : Ctrl-clic sur DocAnalyser dans Applications › **Ouvrir**, puis **Ouvrir** ;
+- ou dans le Terminal : `xattr -dr com.apple.quarantine /Applications/DocAnalyser.app`.
+
+Ensuite, un double-clic suffit. Une fenêtre du **Terminal** s'ouvre (l'équivalent de la fenêtre noire sous Windows) : la garder ouverte pendant l'utilisation, la fermer arrête l'application ; le navigateur s'ouvre sur http://127.0.0.1:8020. Les clés API sont rangées dans le **trousseau macOS** (application Trousseaux d'accès, service « DocAnalyser ») ; documents, historique, connexions et `.env` facultatif sont dans `~/Library/Application Support/DocAnalyser`.
+
+### Sous Linux / macOS, depuis les sources
 ```bash
 ./start.sh
 ```
@@ -77,14 +89,14 @@ Les modèles se configurent dans l'application, onglet **Réglages**, avec la m�
 |---|---|
 | Nom | Affiché à côté de chaque modèle au moment de lancer une analyse. |
 | URL du service | Adresse du service **compatible OpenAI** : passerelle interne, Mistral, vLLM, Ollama, LM Studio, Azure… |
-| Clé API | **Chiffrée avec le compte Windows** (DPAPI), jamais réaffichée en clair. Facultative pour un serveur sans clé (Ollama, LM Studio). |
+| Clé API | **Chiffrée avec le compte Windows** (DPAPI) ou rangée dans le **trousseau macOS**, jamais réaffichée en clair. Facultative pour un serveur sans clé (Ollama, LM Studio). |
 | Certificat de l'entreprise *(facultatif)* | `.crt` (PEM ou DER) de l'autorité qui a signé le certificat HTTPS du serveur, copié dans l'application ; expiration affichée. Les autorités internes sans extension « key usage » sont acceptées (chaîne et nom du serveur vérifiés). |
 | Modèles | Autant que voulu. Le profil (approfondi, équilibré, rapide) est déduit du nom. |
 | Options avancées | Fenêtre de contexte (tokens). |
 
 **Tester la connexion** vérifie les valeurs saisies avant d'enregistrer et indique la cause d'un échec : serveur injoignable, délai dépassé, certificat non reconnu, clé refusée, adresse ou modèle introuvable. Si le serveur liste ses modèles, le test signale ceux qui n'y sont pas et **propose ceux qui y sont, à ajouter d'un clic**.
 
-Les connexions sont enregistrées dans `%APPDATA%\DocAnalyser` (`~/.config/docanalyser` hors Windows ; `DOCANALYSER_CONFIG` pour un autre dossier).
+Les connexions sont enregistrées dans `%APPDATA%\DocAnalyser` sous Windows, `~/Library/Application Support/DocAnalyser` sur Mac (un ancien dossier `~/.config/docanalyser` reste utilisé s'il existe), `~/.config/docanalyser` sous Linux ; `DOCANALYSER_CONFIG` pour un autre dossier.
 
 ### Déploiement sur plusieurs postes : fichier `backend/.env`
 
@@ -147,9 +159,9 @@ Publier une version :
 2. `python scripts/bump_version.py minor` (ou `patch`, `major`, ou un numéro `2.2.0`) : met à jour `VERSION`, la version de l'interface et date la section du journal.
 3. Committer, fusionner sur `main`.
 4. Sur GitHub : *Releases › Draft a new release*, tag **`vX.Y.Z`** (le même numéro que `VERSION`), coller la section du journal en description, *Publish release*.
-5. Le workflow « Build Windows exe » compile l'interface, fabrique l'exe, vérifie qu'il démarre et le joint à la release sous le nom `DocAnalyser-X.Y.Z.exe` (quelques minutes). Si le tag ne correspond pas à `VERSION`, il s'arrête avec un message.
+5. Le workflow « Build Windows exe » compile l'interface, fabrique l'exe, vérifie qu'il démarre et le joint à la release sous le nom `DocAnalyser-X.Y.Z.exe` (quelques minutes). Si le tag ne correspond pas à `VERSION`, il s'arrête avec un message. En même temps, le workflow « Build macOS app » fabrique l'app Mac sur deux Mac de GitHub (puce Apple et Intel), vérifie qu'elle démarre et joint `DocAnalyser-X.Y.Z-mac-apple.dmg` et `DocAnalyser-X.Y.Z-mac-intel.dmg` à la release.
 
-À chaque push, le même workflow dépose l'exe en artefact `DocAnalyser-windows` (onglet *Actions*). Fabrication à la main, sur un PC Windows : `cd frontend && npm ci && npm run build`, puis à la racine `pip install -r backend/requirements.txt pyinstaller` et `pyinstaller --noconfirm DocAnalyser.spec` (résultat dans `dist\`).
+À chaque push, le même workflow dépose l'exe en artefact `DocAnalyser-windows` (onglet *Actions*). Fabrication à la main, sur un PC Windows : `cd frontend && npm ci && npm run build`, puis à la racine `pip install -r backend/requirements.txt pyinstaller` et `pyinstaller --noconfirm DocAnalyser.spec` (résultat dans `dist\`). Sur un Mac, les mêmes commandes donnent `dist/DocAnalyser.app` ; l'icône Mac est `icone/docanalyser.icns`.
 
 ## 3. Fidélité aux documents
 
