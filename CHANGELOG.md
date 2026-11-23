@@ -21,6 +21,19 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 - Écran Réglages : la protection des clés indiquée est celle du poste (compte Windows ou trousseau macOS).
 
+### Corrigé
+
+- Mode Flux et parcours sur un très gros document (plusieurs centaines de pages) : l'analyse ne s'arrête plus
+  pendant la « fusion des doublons » avec « Le parcours décrit est trop volumineux pour ce modèle ». Quand les
+  éléments extraits ne tiennent pas dans une seule requête, le parcours est désormais reconstitué étape par étape,
+  comme la Synthèse globale thème par thème : plan des étapes sur une liste condensée (par parties si besoin),
+  rangement de chaque élément dans son étape, rédaction de chaque étape depuis ses éléments et leurs passages
+  d'origine, puis titre, « En bref » et graphe. Aucune requête ne grossit avec le document, quelle que soit la
+  fenêtre du modèle. Les passes de fusion des doublons, lentes sur un modèle local, sont supprimées. Rien n'est
+  perdu : un élément rangé dans aucune étape ou que le modèle n'a pas pu rédiger est repris tel quel en fin de
+  parcours. Chaque appel reste gardé sur le disque pour « Reprendre l'analyse ». Les documents de taille moyenne
+  sont analysés comme avant.
+
 ## [2.9.1] — 2026-11-22
 
 ### Modifié

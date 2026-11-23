@@ -78,45 +78,104 @@ def test_activite_du_modele_affichee(monkeypatch):
     assert a.public()["activity"] is None
 
 
-def test_fusion_des_doublons_paquet_par_paquet_et_paquet_en_echec_garde(monkeypatch):
-    """Mode Parcours : la fusion progresse paquet par paquet ; un paquet qui échoue est gardé tel quel."""
+def _flow_fake(calls, fail_first_phase=False):
+    """Faux modèle du mode Parcours : répond selon la consigne reçue, et note la taille de chaque requête."""
+    import re as _re
+
+    state = {"failed": False}
+
+    async def fake_call_json(analysis, chain, system_prompt, user, **kw):
+        calls.append((system_prompt, user))
+        if "identifie uniquement les étapes du parcours dont parle cette partie" in system_prompt:
+            return {"title": "Parcours d'achat", "phases": [{"name": "Inscription", "scope": "Création du compte"},
+                                                           {"name": "Paiement", "scope": "Règlement"}]}
+        if "Établis la liste unique des étapes" in system_prompt:
+            return {"title": "Parcours d'achat", "phases": [{"name": "Inscription", "scope": "Création du compte"},
+                                                           {"name": "Paiement", "scope": "Règlement"}]}
+        if "entre les étapes d'un parcours" in system_prompt:
+            ids = _re.findall(r"^(e\d+) ", user, _re.M)
+            return {"assign": {i: (0 if i == "e7" else 1 + int(i[1:]) % 2) for i in ids}}
+        if "Rédige une seule étape" in system_prompt:
+            if fail_first_phase and not state["failed"]:
+                state["failed"] = True
+                raise svc.InvalidModelOutput("illisible")
+            step = "Paiement" if "Étape à rédiger : 2." in user else "Inscription"
+            return {"phase": {"does": f"L'utilisateur avance ({step})", "frictions": [f"Friction {step}"],
+                              "touchpoints": ["Site web"]},
+                    "priorities": [{"severity": "Majeur", "title": f"Blocage {step}", "body": "b"}]}
+        if "Réunis-les en une seule description" in system_prompt:
+            return {"phase": {"does": "Description réunie", "frictions": ["Friction réunie"]}}
+        if "Donne le titre du parcours" in system_prompt:
+            return {"title": "Achat en ligne", "brief": "Un *parcours* simple.",
+                    "flow": {"nodes": [{"id": "a", "label": "Inscription", "type": "entry"},
+                                       {"id": "b", "label": "Paiement", "type": "goal"}],
+                             "edges": [{"from": "a", "to": "b", "kind": "main"}]}}
+        raise AssertionError("consigne inattendue : " + system_prompt[:200])
+
+    return fake_call_json
+
+
+def test_parcours_d_un_tres_gros_document_redige_etape_par_etape(monkeypatch):
+    """Mode Parcours, liste d'éléments bien plus grande que la fenêtre : aucune requête ne dépasse la fenêtre,
+    chaque élément est rangé dans une étape, et rien n'est perdu (élément hors étape repris tel quel)."""
     from app.services import batch_pipeline
 
-    items = [batch_pipeline.Item(f"e{i}", "fait", f"Constat {i} " + "y" * 60, "cr.txt", f"L{i}") for i in range(12)]
+    kinds = ["etape", "friction", "transition", "attente", "sortie", "fait"]
+    items = [batch_pipeline.Item(f"e{i}", kinds[i % len(kinds)], f"Constat {i} " + "z" * 80, "cr.txt", f"L{i}")
+             for i in range(1, 301)]
     calls = []
 
     async def fake_extract(analysis, chain, checker):
-        return list(items), [], 3
+        return list(items), [], 40
+
+    monkeypatch.setattr(batch_pipeline, "extract", fake_extract)
+    monkeypatch.setattr(svc, "_call_json", _flow_fake(calls, fail_first_phase=True))
+    monkeypatch.setattr(batch_pipeline, "budget_chars", lambda spec, cap=0: 3000)
+    a = svc.Analysis("fb1", "flow", "detail", "T:qwen:27b", "fr", True, [], svc.datetime.now(svc.timezone.utc))
+    data = asyncio.run(batch_pipeline.run_flow(a, [_spec()], svc.QuoteChecker("")))
+
+    # Taille de chaque requête bornée par la fenêtre, quel que soit le nombre d'éléments (≈ 30 000 caractères ici).
+    assert max(len(u) for _, u in calls) <= 3000
+    assert sum(1 for p, _ in calls if "dont parle cette partie" in p) > 1  # plan des étapes par parties
+    assert any("Établis la liste unique des étapes" in p for p, _ in calls)
+
+    result = svc.normalize_journey(data, ["cr.txt"], svc.QuoteChecker(""))
+    assert [p["name"] for p in result["phases"]] == ["Inscription", "Paiement"]
+    assert result["title"] == "Achat en ligne" and len(result["flow"]["nodes"]) == 2
+    assert {p["phase"] for p in data["priorities"]} == {"Inscription", "Paiement"}
+    # e7 n'est rangé dans aucune étape ; l'élément de la partie illisible, redécoupée, reste rédigé ou repris.
+    assert any(e["location"] == "L7" for e in result["extra"])
+    assert data["coverage"]["recovered"] == len(data["extra"])
+    assert "étape par étape" in a.step_notes[1] and "(2/2)" in a.step_notes[3]
+
+    # Reprise : tout ce qui a été rédigé est relu sur le disque ; seule la partie qui avait échoué est redemandée.
+    calls.clear()
+    a2 = svc.Analysis("fb2", "flow", "detail", "T:qwen:27b", "fr", True, [], svc.datetime.now(svc.timezone.utc))
+    asyncio.run(batch_pipeline.run_flow(a2, [_spec()], svc.QuoteChecker("")))
+    assert len(calls) == 1 and "Rédige une seule étape" in calls[0][0]
+
+
+def test_parcours_qui_tient_dans_la_fenetre_reste_en_deux_appels(monkeypatch):
+    from app.services import batch_pipeline
+
+    items = [batch_pipeline.Item(f"e{i}", "etape", f"Étape courte {i}", "cr.txt", f"L{i}") for i in range(1, 6)]
+    prompts = []
+
+    async def fake_extract(analysis, chain, checker):
+        return list(items), [], 2
 
     async def fake_call_json(analysis, chain, system_prompt, user, **kw):
-        if system_prompt == batch_pipeline.MERGE_PROMPT:
-            calls.append(user)
-            if len(calls) == 1:
-                raise svc.InvalidModelOutput("boucle")
-            lines = user.splitlines()
-            return {"items": [{"kind": "fait", "text": l.split(") ", 1)[1], "document": "cr.txt", "location": "L"}
-                              for l in lines[: max(1, len(lines) // 3)]]}
-        if "phases" in system_prompt or "parcours" in system_prompt.lower():
+        prompts.append(system_prompt)
+        if "Première passe" in system_prompt:
             return {"title": "T", "phases": [{"name": "Étape"}]}
-        return {"title": "T", "phases": [{"name": "Étape"}]}
+        return {"title": "T", "phases": [{"name": "Étape", "does": "x"}], "flow": {"nodes": [], "edges": []},
+                "priorities": []}
 
     monkeypatch.setattr(batch_pipeline, "extract", fake_extract)
     monkeypatch.setattr(svc, "_call_json", fake_call_json)
-    monkeypatch.setattr(batch_pipeline, "budget_chars", lambda spec, cap=0: 900)
-    monkeypatch.setattr(batch_pipeline, "EXTRACT_SHARE", 0.4)
-    a = svc.Analysis("f1", "flow", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
-    asyncio.run(batch_pipeline.run_flow(a, [_spec()], svc.QuoteChecker("")))
-    first = calls[0]
-    assert len(calls) >= 3  # plusieurs paquets, l'échec du premier n'arrête pas l'analyse
-    assert "fusion des doublons" in a.step_notes[1] and "fusionné" in a.step_notes[1]
-    assert a.eta_at > 0
-
-    # Reprise : les paquets déjà fusionnés sont relus sur le disque, seul celui qui avait échoué est redemandé.
-    calls.clear()
-    calls.append("déjà un appel")  # le prochain appel ne simule plus d'échec
-    a2 = svc.Analysis("f2", "flow", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
-    asyncio.run(batch_pipeline.run_flow(a2, [_spec()], svc.QuoteChecker("")))
-    assert calls[1] == first
+    a = svc.Analysis("fs1", "flow", "synth", "T:qwen:27b", "fr", False, [], svc.datetime.now(svc.timezone.utc))
+    data = asyncio.run(batch_pipeline.run_flow(a, [_spec()], svc.QuoteChecker("")))
+    assert len(prompts) == 2 and data["phases"][0]["name"] == "Étape"
 
 
 def test_classement_qui_invente_des_elements_interrompu_et_repris(monkeypatch):
