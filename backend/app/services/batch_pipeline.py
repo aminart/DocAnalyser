@@ -22,6 +22,7 @@ from typing import Any
 from app.core.config import settings
 from app.services import analysis_service as svc
 from app.services.parser_service import AnchoredTextBlock
+from app.services.prompts import FLOW_GRAPH_RULES, FLOW_LEVEL_GUIDANCE
 
 logger = logging.getLogger("analyse")
 
@@ -33,7 +34,6 @@ WRITE_MAX_ITEMS = 40  # éléments par appel de rédaction d'un thème
 MAX_OTHER_SHARE = 0.15  # au-delà, de nouveaux thèmes sont dégagés à partir des éléments non classés
 MAX_THEME_ROUNDS = 2  # part de la fenêtre utilisée par un lot (le reste : consignes et réponse)
 PASSAGE_SHARE = 0.55  # part de la fenêtre pour éléments + passages lors de la rédaction d'un thème
-MAX_MERGE_ROUNDS = 4
 
 THEME_KINDS = "fait | chiffre | decision | action | friction | attente | desaccord | verbatim"
 FLOW_KINDS = THEME_KINDS + " | etape | transition | sortie | ressenti | point_de_contact"
@@ -354,15 +354,28 @@ _ASSIGN_KEY = re.compile(r'"[^"\n]{1,20}"\s*:\s*\d')
 
 
 async def _assign(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item],
-                  themes: list[dict[str, Any]]) -> dict[str, int]:
-    """Numéro de thème (1…n) de chaque élément ; les éléments oubliés par le modèle sont redemandés une fois."""
+                  themes: list[dict[str, Any]], phases: bool = False) -> dict[str, int]:
+    """Numéro de thème (1…n) de chaque élément ; les éléments oubliés par le modèle sont redemandés une fois.
+
+    phases : les « thèmes » sont les étapes d'un parcours (mode Parcours, gros documents).
+    """
     theme_list = "\n".join(f"{i + 1}. {t['title']} — {t['scope']}" for i, t in enumerate(themes))
-    prompt = "\n\n".join([
-        "Tu répartis des éléments extraits d'un corpus entre des thèmes. Chaque élément va dans le thème qui lui "
-        "correspond le mieux ; 0 seulement s'il ne correspond à aucun thème. Réponds pour CHAQUE identifiant fourni.",
-        "Thèmes :\n" + theme_list,
-        'Schéma JSON attendu : {"assign": {"identifiant de l\'élément": numéro du thème}}',
-    ])
+    if phases:
+        prompt = "\n\n".join([
+            "Tu répartis des éléments extraits d'un corpus entre les étapes d'un parcours utilisateur. Chaque élément "
+            "va dans l'étape à laquelle il se rapporte le mieux (ce que fait l'utilisateur, ce qu'il ressent, ce qui le "
+            "bloque ou ce qu'il attend à ce moment-là) ; 0 seulement s'il ne se rapporte à aucune étape. Réponds pour "
+            "CHAQUE identifiant fourni.",
+            "Étapes, dans l'ordre :\n" + theme_list,
+            'Schéma JSON attendu : {"assign": {"identifiant de l\'élément": numéro de l\'étape}}',
+        ])
+    else:
+        prompt = "\n\n".join([
+            "Tu répartis des éléments extraits d'un corpus entre des thèmes. Chaque élément va dans le thème qui lui "
+            "correspond le mieux ; 0 seulement s'il ne correspond à aucun thème. Réponds pour CHAQUE identifiant fourni.",
+            "Thèmes :\n" + theme_list,
+            'Schéma JSON attendu : {"assign": {"identifiant de l\'élément": numéro du thème}}',
+        ])
     budget = int(budget_chars(chain[0], analysis.context_cap) * 0.6) - len(theme_list)
     result: dict[str, int] = {}
 
@@ -813,78 +826,299 @@ async def run_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker
 
 
 # ---------------------------------------------------------------------------
-# Mode Flux
+# Mode Parcours
 # ---------------------------------------------------------------------------
+#
+# Corpus moyen : la liste des éléments extraits tient dans une requête ; le plan des étapes puis le parcours complet
+# sont rédigés en deux appels.
+# Très gros corpus (des centaines de pages) : la liste ne tient plus dans la fenêtre du modèle, et une fusion des
+# doublons ne la réduit pas assez, puisqu'elle ne retire que les vrais doublons. Le parcours est alors reconstitué
+# étape par étape, comme la Synthèse globale thème par thème :
+# 1. plan des étapes sur une liste condensée (les éléments qui décrivent le déroulé), par parties si besoin ;
+# 2. chaque élément est rangé dans son étape ;
+# 3. chaque étape est rédigée à partir de ses éléments et de leurs passages d'origine ;
+# 4. titre, « En bref » et graphe sont dressés à partir des étapes rédigées et des transitions et sorties relevées.
+# Aucune requête ne dépend de la taille du corpus : la méthode tient quel que soit le nombre de pages.
 
-MERGE_PROMPT = (
-    "Tu reçois des éléments extraits de différentes parties d'un même corpus sur un parcours utilisateur. "
-    "Fusionne uniquement les doublons (même étape, même friction, même transition dits plusieurs fois) en un seul "
-    "élément qui garde tous les repères de source. Ne supprime aucun élément unique, n'ajoute rien, et recopie "
-    "les verbatims mot pour mot.\n\n"
-    'Schéma JSON attendu : {"items": [{"kind": "…", "text": "…", "speaker": "…", "document": "…", "location": "…"}]}'
-)
+FLOW_FIT_SHARE = 0.7  # part de la fenêtre que peut occuper la liste des éléments pour une rédaction en un bloc
+FLOW_STEP_KINDS = {"etape", "transition", "sortie", "point_de_contact"}  # éléments qui décrivent le déroulé
+OUTLINE_LINE_CHARS = 220  # élément raccourci, pour le plan des étapes
+PHASE_LISTS = ("touchpoints", "frictions", "opportunities")
+SENTIMENT_RULE = ("« sentiment » est un entier de -2 (très négatif) à 2 (très positif), ou null si les documents "
+                  "n'expriment aucun ressenti à cette étape (« mood » vide).")
+
+PHASES_SCHEMA = ('Schéma JSON attendu :\n{"title": "titre court et explicite du parcours (max 8 mots)", '
+                 '"phases": [{"name": "nom de l\'étape (1 à 3 mots)", "scope": "ce qui se passe à cette étape, en une phrase"}]}')
+
+PHASE_SCHEMA = """{
+  "phase": {
+    "mood": "ressenti exprimé dans les documents, en un mot ; chaîne vide si aucun",
+    "sentiment": "entier de -2 à 2, ou null si aucun ressenti n'est exprimé",
+    "does": "ce que fait l'utilisateur à cette étape",
+    "touchpoints": ["points de contact (2 à 4 mots chacun)"],
+    "frictions": ["frictions ou points de rupture signalés dans les documents (phrase courte) ; [] si aucun"],
+    "opportunities": ["attentes ou idées d'amélioration exprimées dans les documents (phrase courte) ; [] si aucune"]
+  },
+  "priorities": [
+    {"severity": "Bloquant | Majeur | Mineur", "title": "intitulé de la friction", "body": "explication en 1 à 2 phrases",
+     "quote": "verbatim recopié mot pour mot", "frequency": "fréquence citée dans les documents, sinon chaîne vide"}
+  ]
+}"""
+
+FLOW_HEAD_SCHEMA = """{
+  "title": "titre court et explicite du parcours",
+  "brief": "2 à 3 phrases qui résument le parcours ; entoure de *astérisques* un seul groupe de 2 à 6 mots, le plus important",
+  "flow": {
+    "nodes": [{"id": "identifiant court unique (ex. n1)", "label": "action, écran ou décision (2 à 8 mots)",
+               "type": "entry | step | decision | exit | goal", "friction": false}],
+    "edges": [{"from": "id du nœud de départ", "to": "id du nœud d'arrivée",
+               "label": "condition ou action déclenchante (chaîne vide si évident)", "kind": "main | alt | exit | loop"}]
+  }
+}"""
 
 
-async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: svc.QuoteChecker) -> dict[str, Any]:
-    svc._enter(analysis, 1)
-    items, _, n_batches = await extract(analysis, chain, checker)
-    budget = budget_chars(chain[0], analysis.context_cap)
-    doc_names = [d.name for d in analysis.documents]
+def _flow_base(analysis: svc.Analysis) -> list[str]:
+    return [svc.BASE_RULES, svc.MODE_GUIDANCE["flow"]]
 
-    # Dédoublonnage par paquets tant que la liste ne tient pas dans la fenêtre. Le modèle y recopie chaque paquet
-    # presque en entier : c'est long sur un modèle local, d'où la progression paquet par paquet, la durée restante
-    # recalculée, les paquets gardés sur le disque (reprise) et un paquet laissé tel quel s'il échoue.
-    merged_done, started = 0, time.monotonic()
 
-    async def merge_one(k: int, total: int, rnd: int, part: list[Item], user: str) -> dict[str, Any]:
-        nonlocal merged_done
-        key = _lot_key(chain[0], MERGE_PROMPT, user)
-        out = _lot_load(key)
-        if out is None:
-            try:
-                out = await svc._call_json(analysis, chain, MERGE_PROMPT, user)
-                _lot_save(key, out)
-            except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
-                # Les doublons de ce paquet restent : la suite du parcours les regroupe de toute façon.
-                logger.warning("Fusion des doublons : paquet %s/%s gardé tel quel (%s)", k, total, exc)
-                out = {"items": [{"kind": it.kind, "text": it.text, "speaker": it.speaker, "document": it.document,
-                                  "location": it.location} for it in part]}
-            merged_done += 1
-            per_part = (time.monotonic() - started) / merged_done
-            analysis.eta_at = time.time() + per_part * ((total - k) + 2)  # + plan et rédaction du parcours
-        analysis.step_notes[1] = (f"{n_batches} lots extraits · fusion des doublons (passe {rnd}) · "
-                                  f"paquet {k}/{total} fusionné")
+def _phases_of(out: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"title": svc._s(p.get("name")), "scope": svc._s(p.get("scope")), "items": []}
+            for p in out.get("phases") or [] if isinstance(p, dict) and svc._s(p.get("name"))]
+
+
+async def flow_outline(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item]) -> tuple[str, list[dict[str, Any]]]:
+    """Étapes du parcours (titre, [{title, scope, items}]) sur une liste condensée, découpée en parties si besoin."""
+    budget = int(budget_chars(chain[0], analysis.context_cap) * 0.6)
+    steps = [i for i in items if i.kind in FLOW_STEP_KINDS]
+    if len(steps) < 5:  # document qui décrit peu le déroulé lui-même : tous les éléments servent au plan
+        steps = items
+    lines = [f"[{i.kind}] {i.text[:OUTLINE_LINE_CHARS]}" for i in steps]
+    groups = _group(lines, budget)
+    scope = "d'un corpus" if len(groups) == 1 else "d'une partie d'un corpus volumineux"
+    task = (f"Voici, dans l'ordre, les éléments {scope} qui décrivent le déroulé d'un parcours utilisateur (étapes, "
+            "transitions, sorties, points de contact). Première passe : identifie uniquement les étapes du parcours "
+            + ("dont parle cette partie, " if len(groups) > 1 else "") + "dans l'ordre chronologique.")
+    prompt = "\n\n".join(_flow_base(analysis) + [task, svc.COMPLETENESS_RULE, FLOW_LEVEL_GUIDANCE[analysis.level],
+                                                 _lang(analysis.language), PHASES_SCHEMA])
+    done = 0
+
+    async def one(g: list[int]) -> dict[str, Any]:
+        nonlocal done
+        try:
+            out = await _cached_call_json(analysis, chain, prompt, "\n".join(lines[i] for i in g))
+        except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+            if len(groups) == 1:
+                raise
+            logger.warning("Étapes d'une partie du corpus non repérées (%s)", exc)  # les autres parties suffisent
+            out = {}
+        done += 1
+        analysis.progress = 30 + 10 * done / len(groups)
+        analysis.step_notes[2] = f"Repérage des étapes du parcours · partie {done}/{len(groups)}"
         return out
 
-    rounds = 0
-    while len("\n".join(i.line() for i in items)) > budget * 0.7:
-        rounds += 1
-        if rounds > MAX_MERGE_ROUNDS:
-            raise svc.AnalysisError("Le parcours décrit est trop volumineux pour ce modèle : choisissez un modèle à plus grande fenêtre.")
-        lines = [i.line() for i in items]
-        groups = _group(lines, int(budget * EXTRACT_SHARE))
-        analysis.step_notes[1] = f"{n_batches} lots extraits · fusion des doublons (passe {rounds}, {len(groups)} paquets)"
-        results = await _gather_limited([
-            merge_one(k, len(groups), rounds, [items[i] for i in g], "\n".join(lines[i] for i in g))
-            for k, g in enumerate(groups, start=1)
-        ], svc.concurrency(chain[0]))
-        merged: list[Item] = []
-        for raw_out in results:
-            for raw in raw_out.get("items") or []:
-                if isinstance(raw, dict) and svc._s(raw.get("text")):
-                    kind = svc._s(raw.get("kind")) or "fait"
-                    text = svc._s(raw.get("text"))
-                    merged.append(Item(f"e{len(merged) + 1}", kind, text,
-                                       svc._match_doc(svc._s(raw.get("document")), doc_names) or "",
-                                       svc._s(raw.get("location")), svc._s(raw.get("speaker")),
-                                       checker.check(text) if kind == "verbatim" else ""))
-        if len(merged) >= len(items):  # plus rien à fusionner
-            items = merged
-            if len("\n".join(i.line() for i in items)) > budget * 0.7:
-                raise svc.AnalysisError("Le parcours décrit est trop volumineux pour ce modèle : choisissez un modèle à plus grande fenêtre.")
-            break
-        items = merged
+    analysis.step_notes[2] = f"Repérage des étapes du parcours sur {len(steps)} éléments"
+    outs = await _gather_limited([one(g) for g in groups], svc.concurrency(chain[0]))
+    title = next((svc._s(o.get("title")) for o in outs if svc._s(o.get("title"))), "")
+    if len(groups) == 1:
+        return title, _phases_of(outs[0])
 
+    # Plusieurs parties : leurs étapes sont réunies en une seule liste ordonnée (requête courte).
+    partial = [_phases_of(o) for o in outs]
+    listing = "\n\n".join(f"Partie {k} :\n" + "\n".join(f"- {p['title']} — {p['scope']}" for p in ps)
+                          for k, ps in enumerate(partial, start=1) if ps)
+    if not listing:
+        raise svc.AnalysisError("Le modèle n'a reconstitué aucune étape de parcours.")
+    merge_prompt = "\n\n".join(_flow_base(analysis) + [
+        "Voici les étapes repérées dans les parties successives d'un même corpus. Établis la liste unique des étapes "
+        "du parcours, dans l'ordre chronologique : réunis celles qui désignent la même étape, mais ne perds aucune "
+        "étape. Pour un corpus volumineux, prévois assez d'étapes pour que chacune reste lisible.",
+        FLOW_LEVEL_GUIDANCE[analysis.level], _lang(analysis.language), PHASES_SCHEMA])
+    analysis.step_notes[2] = f"Réunion des étapes repérées dans les {len(groups)} parties"
+    try:
+        out = await _cached_call_json(analysis, chain, merge_prompt, listing)
+    except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+        logger.warning("Étapes non réunies par le modèle (%s) : liste mise bout à bout", exc)
+        out = {}
+    phases = _phases_of(out)
+    if not phases:  # repli : étapes des parties dans l'ordre, sans les doublons de nom
+        seen: set[str] = set()
+        for p in (p for ps in partial for p in ps):
+            if p["title"].lower() not in seen:
+                seen.add(p["title"].lower())
+                phases.append(p)
+    return svc._s(out.get("title")) or title, phases
+
+
+async def place_in_phases(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item],
+                          phases: list[dict[str, Any]]) -> list[Item]:
+    """Range chaque élément dans son étape (phases[i]["items"], dans l'ordre du corpus) ; renvoie les éléments restés hors étape."""
+    analysis.step_notes[2] = f"{len(phases)} étapes · rangement de {len(items)} éléments extraits"
+    mapping = await _assign(analysis, chain, items, phases, phases=True)
+    leftovers = []
+    for it in items:
+        try:
+            num = int(mapping.get(it.id, 0))
+        except (TypeError, ValueError):
+            num = 0
+        if 1 <= num <= len(phases):
+            phases[num - 1]["items"].append(it)
+        else:
+            leftovers.append(it)
+    analysis.progress = 59
+    return leftovers
+
+
+def _phase_prompt(analysis: svc.Analysis) -> str:
+    return "\n\n".join(_flow_base(analysis) + [
+        "Rédige une seule étape du parcours à partir des éléments extraits des documents et des passages d'origine "
+        "fournis. Couvre tous les éléments listés : chaque action, point de contact, ressenti, friction et attente "
+        "doit se retrouver dans l'étape. Reprends tels quels les chiffres, durées, dates et noms. Vérifie le sens et "
+        "les citations dans les passages d'origine quand ils sont fournis.",
+        FLOW_LEVEL_GUIDANCE[analysis.level],
+        SENTIMENT_RULE + " « priorities » : frictions prioritaires de cette étape, [] si aucune friction n'est signalée.",
+        _lang(analysis.language),
+        "Schéma JSON attendu :\n" + PHASE_SCHEMA,
+    ])
+
+
+def _merge_phase(phase: dict[str, Any], parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Réunit les parties d'une étape rédigée en plusieurs fois, sans rien retirer."""
+    out: dict[str, Any] = {"name": phase["title"], "mood": "", "sentiment": None, "does": "",
+                           **{f: [] for f in PHASE_LISTS}, "priorities": []}
+    does = []
+    for p in parts:
+        ph = p.get("phase") if isinstance(p.get("phase"), dict) else {}
+        if not out["mood"] and svc._s(ph.get("mood")):
+            out["mood"], out["sentiment"] = svc._s(ph.get("mood")), ph.get("sentiment")
+        does.append(svc._s(ph.get("does")))
+        for f in PHASE_LISTS:
+            out[f] += svc._str_list(ph.get(f))
+        out["priorities"] += [dict(x, phase=phase["title"]) for x in p.get("priorities") or [] if isinstance(x, dict)]
+    out["does"] = " ".join(dict.fromkeys(d for d in does if d))
+    for f in PHASE_LISTS:
+        out[f] = list(dict.fromkeys(out[f]))
+    return out
+
+
+async def _condense_phase(analysis: svc.Analysis, chain: list[svc.ModelSpec], merged: dict[str, Any]) -> None:
+    """Étape rédigée en plusieurs parties : un seul « does », listes dédoublonnées. Modifie merged."""
+    user = (f"Étape : {merged['name']}\n\nCe que fait l'utilisateur (parties) :\n{merged['does']}\n\n"
+            + "\n\n".join(f"{f} :\n" + "\n".join(f"- {x}" for x in merged[f]) for f in PHASE_LISTS if merged[f]))
+    prompt = "\n\n".join([
+        svc.BASE_RULES,
+        "Voici une étape d'un parcours utilisateur rédigée en plusieurs parties. Réunis-les en une seule description : "
+        "« does » en 1 à 3 phrases ; dans chaque liste, regroupe les éléments qui disent la même chose, sans perdre "
+        "aucune information distincte ni aucun chiffre. N'ajoute rien qui ne figure dans les parties fournies.",
+        SENTIMENT_RULE, _lang(analysis.language), "Schéma JSON attendu :\n" + PHASE_SCHEMA.split(',\n  "priorities"')[0] + "\n}",
+    ])
+    try:
+        out = await _cached_call_json(analysis, chain, prompt, user)
+    except (svc.InvalidModelOutput, svc.ProviderUnavailable, svc.AnalysisError) as exc:
+        logger.warning("Étape « %s » non resserrée (%s)", merged["name"], exc)
+        return
+    ph = out.get("phase") if isinstance(out.get("phase"), dict) else {}
+    if svc._s(ph.get("does")):
+        merged["does"] = svc._s(ph.get("does"))
+    for f in PHASE_LISTS:
+        if svc._str_list(ph.get(f)):  # liste vide ou absente : on garde la version complète
+            merged[f] = svc._str_list(ph.get(f))
+
+
+async def write_phases(analysis: svc.Analysis, chain: list[svc.ModelSpec],
+                       phases: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[Item]]:
+    """Rédige chaque étape ; renvoie (étapes rédigées, éléments que le modèle n'a pas pu rédiger)."""
+    budget = int(budget_chars(chain[0], analysis.context_cap) * PASSAGE_SHARE)
+    sem = asyncio.Semaphore(svc.concurrency(chain[0]))
+    prompt = _phase_prompt(analysis)
+    outline = "\n".join(f"{k}. {p['title']}" for k, p in enumerate(phases, start=1))
+    unwritten: list[Item] = []
+    done = 0
+    started = time.monotonic()
+
+    async def write_part(k: int, phase: dict[str, Any], part: list[Item], label: str) -> list[dict[str, Any]]:
+        lines = "\n".join(i.line() for i in part)
+        passages = _passages(analysis, part, budget - len(lines) - len(outline))
+        user = (f"Étapes du parcours :\n{outline}\n\nÉtape à rédiger : {k}. {phase['title']} — {phase['scope']}{label}"
+                f"\n\nÉléments extraits :\n{lines}" + (f"\n\nPassages d'origine :\n{passages}" if passages else ""))
+        try:
+            async with sem:
+                return [await _cached_call_json(analysis, chain, prompt, user)]
+        except svc.AnalysisError as exc:
+            if isinstance(exc, svc.SettingsProblem) or (isinstance(exc, svc.ProviderUnavailable) and not exc.timed_out):
+                raise  # réglage à corriger ou fournisseur indisponible : inutile de redécouper
+            if len(part) > 1:  # délai dépassé, requête refusée ou réponse illisible : on redécoupe
+                half = len(part) // 2
+                return await write_part(k, phase, part[:half], label) + await write_part(k, phase, part[half:], label)
+            unwritten.append(part[0])  # dernier recours : repris tel qu'extrait, rien n'est perdu
+            return []
+
+    async def write_one(k: int, phase: dict[str, Any]) -> dict[str, Any]:
+        nonlocal done
+        lines = [i.line() for i in phase["items"]]
+        groups = _group(lines, budget, WRITE_MAX_ITEMS) if lines else []
+        results = await asyncio.gather(*(
+            write_part(k, phase, [phase["items"][i] for i in g], f" (partie {n + 1}/{len(groups)})" if len(groups) > 1 else "")
+            for n, g in enumerate(groups)
+        ))
+        parts = [p for r in results for p in r]
+        merged = _merge_phase(phase, parts)
+        if len(parts) > 1:
+            await _condense_phase(analysis, chain, merged)
+        if not merged["does"]:
+            merged["does"] = phase["scope"]
+        done += 1
+        per_phase = (time.monotonic() - started) / done
+        analysis.eta_at = time.time() + per_phase * (len(phases) - done + 1)  # + titre, « En bref » et graphe
+        analysis.progress = 60 + 28 * done / len(phases)
+        analysis.step_notes[3] = f"Rédaction étape par étape depuis les passages d'origine ({done}/{len(phases)})"
+        return merged
+
+    analysis.step_notes[3] = f"Rédaction étape par étape depuis les passages d'origine (0/{len(phases)})"
+    written = await asyncio.gather(*(write_one(k, p) for k, p in enumerate(phases, start=1)))
+    return list(written), unwritten
+
+
+async def flow_head(analysis: svc.Analysis, chain: list[svc.ModelSpec], title: str, written: list[dict[str, Any]],
+                    items: list[Item]) -> dict[str, Any]:
+    """Titre, « En bref » et graphe du parcours, à partir des étapes rédigées et des transitions et sorties relevées."""
+    budget = budget_chars(chain[0], analysis.context_cap)
+    digest = "\n".join(
+        f"{k}. {p['name']} : {p['does']}"
+        + (f" | Points de contact : {', '.join(p['touchpoints'])}" if p["touchpoints"] else "")
+        + (f" | Frictions : {' ; '.join(p['frictions'])}" if p["frictions"] else "")
+        for k, p in enumerate(written, start=1)
+    )[: int(budget * 0.5)]
+    moves, size = [], len(digest)
+    for it in items:
+        if it.kind in {"transition", "sortie"}:
+            line = f"- [{it.kind}] {it.text[:OUTLINE_LINE_CHARS]}"
+            if size + len(line) > budget * 0.8:
+                break
+            moves.append(line)
+            size += len(line) + 1
+    prompt = "\n\n".join(_flow_base(analysis) + [
+        "Voici les étapes d'un parcours utilisateur, déjà rédigées à partir d'un corpus volumineux, puis les "
+        "transitions et points de sortie relevés dans le corpus. Donne le titre du parcours, « En bref » (2 à 3 "
+        "phrases, sans rien ajouter qui n'y figure) et le graphe du parcours.",
+        FLOW_GRAPH_RULES[analysis.level], _lang(analysis.language), "Schéma JSON attendu :\n" + FLOW_HEAD_SCHEMA,
+    ])
+    user = "Étapes :\n" + digest + ("\n\nTransitions et sorties relevées :\n" + "\n".join(moves) if moves else "")
+    analysis.step_notes[3] = f"{analysis.step_notes.get(3, '')} · titre, « En bref » et graphe du parcours".lstrip(" ·")
+    try:
+        head = await _cached_call_json(analysis, chain, prompt, user)
+    except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+        # Les étapes rédigées ne sont pas perdues : graphe linéaire des étapes, à défaut de mieux.
+        logger.warning("Titre, « En bref » et graphe du parcours non rédigés (%s)", exc)
+        head = {}
+    flow = head.get("flow")
+    if not (isinstance(flow, dict) and flow.get("nodes")):
+        flow = {"nodes": [{"id": f"p{k}", "label": p["name"], "type": "step", "friction": bool(p["frictions"])}
+                          for k, p in enumerate(written, start=1)], "edges": []}
+    return {"title": svc._s(head.get("title")) or title, "brief": svc._s(head.get("brief")), "flow": flow}
+
+
+async def _flow_in_one_go(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item]) -> dict[str, Any]:
+    """Liste des éléments assez courte : plan des étapes puis parcours complet, en deux appels."""
     corpus = ("Éléments extraits de l'ensemble du corpus (chacun avec son document et son repère d'origine) :\n"
               + "\n".join(i.line() for i in items))
     svc._enter(analysis, 2)
@@ -898,9 +1132,38 @@ async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: 
     data = await svc._with_creep(
         analysis, 90,
         _cached_call_json(analysis, chain, svc._full_prompt("flow", analysis.level, analysis.language, analysis.cite), user))
-    svc._enter(analysis, 4)
     data.setdefault("title", svc._s(outline.get("title")))
-    missing = uncovered(items, data)
+    return data
+
+
+async def _flow_by_phase(analysis: svc.Analysis, chain: list[svc.ModelSpec], items: list[Item]) -> tuple[dict[str, Any], list[Item]]:
+    """Très gros corpus : parcours reconstitué étape par étape ; renvoie (parcours, éléments hors étape ou non rédigés)."""
+    svc._enter(analysis, 2)
+    title, phases = await flow_outline(analysis, chain, items)
+    if not phases:
+        raise svc.AnalysisError("Le modèle n'a reconstitué aucune étape de parcours.")
+    analysis.preview += [p["title"] for p in phases]
+    leftovers = await place_in_phases(analysis, chain, items, phases)
+    svc._enter(analysis, 3)
+    written, unwritten = await write_phases(analysis, chain, phases)
+    head = await flow_head(analysis, chain, title, written, items)
+    priorities = [p for ph in written for p in ph.pop("priorities")]
+    return {**head, "phases": written, "priorities": priorities}, leftovers + unwritten
+
+
+async def run_flow(analysis: svc.Analysis, chain: list[svc.ModelSpec], checker: svc.QuoteChecker) -> dict[str, Any]:
+    svc._enter(analysis, 1)
+    items, _, n_batches = await extract(analysis, chain, checker)
+    budget = budget_chars(chain[0], analysis.context_cap)
+    if len("\n".join(i.line() for i in items)) <= budget * FLOW_FIT_SHARE:
+        data, apart = await _flow_in_one_go(analysis, chain, items), []
+    else:
+        analysis.step_notes[1] = f"{n_batches} lots extraits · {len(items)} éléments : parcours rédigé étape par étape"
+        data, apart = await _flow_by_phase(analysis, chain, items)
+    svc._enter(analysis, 4)
+    # Rien n'est perdu en silence : éléments hors étape, non rédigés, ou dont une information précise manque.
+    kept = {it.id for it in apart}
+    missing = apart + [it for it in uncovered([i for i in items if i.id not in kept], data)]
     data["extra"] = [{"text": _as_point(it)["lead"], "document": it.document, "location": it.location} for it in missing]
     data["coverage"] = {"batches": n_batches, "items": len(items), "unassigned": 0, "recovered": len(missing)}
     return data
