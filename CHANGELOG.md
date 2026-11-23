@@ -5,6 +5,8 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.10.0] — 2026-11-23
+
 ### Ajouté
 
 - Version Mac : `DocAnalyser.app`, livrée en image disque pour les Mac à puce Apple (`-mac-apple.dmg`) et les Mac
