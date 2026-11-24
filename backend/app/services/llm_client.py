@@ -121,14 +121,16 @@ async def chat(
     *, base_url: str, api_key: str, model: str, messages: list[dict[str, str]], temperature: float = 0,
     max_tokens: int = 0, json_mode: bool = False, ca_bundle: str = "",
     on_delta: Callable[[str], None] | None = None, timeout: float | None = None, stream: bool = False,
-    extra: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None, on_reasoning: Callable[[str], None] | None = None,
 ) -> tuple[str, str | None]:
     """Envoie une conversation ; renvoie (texte, finish_reason). Avec on_delta, réponse reçue en streaming.
 
     timeout : attente maximale sans rien recevoir (secondes) ; par défaut 600 s pour une réponse complète et
     STREAM_READ_TIMEOUT entre deux morceaux en streaming.
     stream : réponse reçue au fil de l'eau même sans on_delta (le délai porte alors sur chaque morceau).
-    extra : champs ajoutés tels quels à la requête (ex. {"think": False} pour Ollama).
+    extra : champs ajoutés tels quels à la requête (ex. {"reasoning_effort": "none"} pour Ollama).
+    on_reasoning : reçoit la réflexion accumulée d'un modèle qui « réfléchit » (champ « reasoning » d'Ollama,
+    « reasoning_content » de vLLM ou DeepSeek), qui n'arrive pas dans la réponse elle-même.
     """
     url = base_url.rstrip("/") + "/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -140,19 +142,25 @@ async def chat(
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
     payload.update(extra or {})
-    try:
-        return await _send(_client(ca_bundle), url, headers, payload, on_delta, timeout, stream)
-    except BadRequestError as exc:
-        # Certains serveurs (anciennes versions de vLLM…) refusent response_format : la consigne impose déjà le JSON.
-        if json_mode and any(k in str(exc).lower() for k in ("response_format", "json_object", "json mode")):
-            payload.pop("response_format", None)
-            return await _send(_client(ca_bundle), url, headers, payload, on_delta, timeout, stream)
-        raise
+    for _ in range(3):
+        try:
+            return await _send(_client(ca_bundle), url, headers, payload, on_delta, timeout, stream, on_reasoning)
+        except BadRequestError as exc:
+            lowered = str(exc).lower()
+            # Certains serveurs (anciennes versions de vLLM…) refusent response_format : la consigne impose déjà le JSON.
+            if "response_format" in payload and any(k in lowered for k in ("response_format", "json_object", "json mode")):
+                payload.pop("response_format")
+            # Champ de réflexion inconnu d'un serveur : la requête repart sans lui.
+            elif "reasoning_effort" in payload and any(k in lowered for k in ("reasoning_effort", "reasoning effort")):
+                payload.pop("reasoning_effort")
+            else:
+                raise
+    return await _send(_client(ca_bundle), url, headers, payload, on_delta, timeout, stream, on_reasoning)
 
 
 async def _send(client: httpx.AsyncClient, url: str, headers: dict[str, str], payload: dict[str, Any],
                 on_delta: Callable[[str], None] | None, timeout: float | None = None,
-                stream: bool = False) -> tuple[str, str | None]:
+                stream: bool = False, on_reasoning: Callable[[str], None] | None = None) -> tuple[str, str | None]:
     try:
         if on_delta is None and not stream:
             kwargs = {"timeout": httpx.Timeout(timeout, connect=20.0)} if timeout else {}
@@ -164,7 +172,7 @@ async def _send(client: httpx.AsyncClient, url: str, headers: dict[str, str], pa
             return (choice.get("message") or {}).get("content") or "", choice.get("finish_reason")
 
         payload = {**payload, "stream": True}
-        text, finish = [], None
+        text, thought, finish = [], [], None
         # En streaming, le délai porte sur chaque morceau : un modèle bloqué est détecté en 3 minutes.
         stream_timeout = httpx.Timeout(timeout or STREAM_READ_TIMEOUT, connect=20.0)
         async with client.stream("POST", url, headers=headers, json=payload, timeout=stream_timeout) as resp:
@@ -183,7 +191,13 @@ async def _send(client: httpx.AsyncClient, url: str, headers: dict[str, str], pa
                 if isinstance(event, dict) and event.get("error"):
                     raise _error(500, chunk)
                 for choice in event.get("choices") or []:
-                    delta = (choice.get("delta") or {}).get("content") or ""
+                    step = choice.get("delta") or {}
+                    reasoning = step.get("reasoning") or step.get("reasoning_content") or ""
+                    if isinstance(reasoning, str) and reasoning:
+                        thought.append(reasoning)
+                        if on_reasoning:
+                            on_reasoning("".join(thought))
+                    delta = step.get("content") or ""
                     if delta:
                         text.append(delta)
                         if on_delta:

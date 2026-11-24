@@ -139,13 +139,28 @@ async def _complete(
         if on_text:
             on_text(full)
 
+    thought = [0, 0]  # caractères de réflexion reçus, et ceux déjà vérifiés
+
+    def on_reasoning(text: str) -> None:
+        # Réflexion préalable que le serveur n'a pas pu désactiver : comptée à l'écran, et interrompue si elle
+        # tourne en boucle (elle peut alors occuper toute la longueur de réponse sans rien écrire).
+        thought[0] = len(text)
+        if activity is not None:
+            activity["thinking"] = len(text)
+        if len(text) - thought[1] >= 500:
+            thought[1] = len(text)
+            if looping(text):
+                logger.warning("%s répète le même passage en boucle dans sa réflexion : réponse interrompue après %s "
+                               "caractères", spec.name, len(text))
+                raise InvalidModelOutput(f"Le modèle {spec.name} s'est mis à réfléchir en boucle sans répondre.")
+
     for _ in range(1 + MAX_CONTINUATIONS):
         chunk, finish = await llm_client.chat(
             base_url=prov.api_base, api_key=prov.api_key, model=spec.name, messages=messages,
             temperature=TEMPERATURE, max_tokens=_max_output(prov), json_mode=json_mode,
             ca_bundle=prov.ca_bundle,
             on_delta=lambda text, done="".join(parts): on_delta(text, done),
-            timeout=timeout, stream=True, extra=extra,
+            timeout=timeout, stream=True, extra=extra, on_reasoning=on_reasoning,
         )
         parts.append(chunk)
         if finish != "length" or not chunk:
@@ -162,9 +177,18 @@ async def _complete(
             "Essayez un modèle à plus grande capacité de sortie."
         )
 
-    content = _THINK.sub("", "".join(parts)).strip()
+    raw = "".join(parts)
+    content = _THINK.sub("", raw).strip()
     if not content:
-        raise AnalysisError(f"Réponse vide du modèle {spec.name}.")
+        # Réponse vide, le plus souvent parce que le modèle a passé toute sa longueur de réponse à réfléchir.
+        # InvalidModelOutput : l'appelant redemande, puis découpe la demande en parties plus petites.
+        if thought[0] or raw.strip():
+            logger.warning("%s a réfléchi (%s caractères) sans rien répondre", spec.name, thought[0] or len(raw))
+            raise InvalidModelOutput(
+                f"Le modèle {spec.name} a passé toute sa réponse à réfléchir sans rien écrire. Si cela se répète, "
+                "désactivez sa réflexion dans Ollama ou choisissez une version sans réflexion (« instruct »)."
+            )
+        raise InvalidModelOutput(f"Réponse vide du modèle {spec.name}.")
     return content
 
 
@@ -172,15 +196,17 @@ _THINK = re.compile(r"<think(?:ing)?>.*?</think(?:ing)?>", re.S | re.I)  # réfl
 
 
 def _thinking_off(spec: ModelSpec, system_prompt: str) -> tuple[dict[str, Any], str]:
-    """Désactive la réflexion préalable : champ « think » d'Ollama (modèle local), consigne /no_think de Qwen 3.
+    """Désactive la réflexion préalable : champs « reasoning_effort » et « think » (modèle local), consigne /no_think.
 
-    Le champ « think » n'est envoyé qu'à un modèle local : un champ inconnu peut être refusé par une passerelle
-    d'entreprise. La consigne /no_think ne s'adresse qu'aux modèles Qwen. Une réflexion écrite malgré tout dans
-    la réponse (<think>…</think>) en est retirée.
+    Par son adresse compatible OpenAI, Ollama ignore « think » : seul reasoning_effort « none » coupe la réflexion
+    (Qwen 3.5 et suivants ignorent aussi /no_think). Ces champs ne sont envoyés qu'à un modèle local : un champ
+    inconnu peut être refusé par une passerelle d'entreprise (et s'il l'est, la requête repart sans lui). La
+    consigne /no_think ne s'adresse qu'aux modèles Qwen. Une réflexion écrite malgré tout dans la réponse
+    (<think>…</think>) en est retirée.
     """
     if not settings.DISABLE_THINKING:
         return {}, system_prompt
-    extra: dict[str, Any] = {"think": False} if spec.provider.local else {}
+    extra: dict[str, Any] = {"think": False, "reasoning_effort": "none"} if spec.provider.local else {}
     if re.search(r"qwen", spec.name, re.I) and "/no_think" not in system_prompt:
         system_prompt += "\n\n/no_think"
     return extra, system_prompt
@@ -265,10 +291,9 @@ def _parse_json(raw: str) -> dict[str, Any]:
 async def _call_json(analysis: "Analysis", chain: list[ModelSpec], system_prompt: str, user: str, **kwargs) -> dict[str, Any]:
     """Appel au modèle dont la réponse doit être un objet JSON ; un nouvel essai si elle est illisible."""
     for attempt in range(2):
-        raw = await _call(analysis, chain, system_prompt, user, **kwargs)
         try:
-            return _parse_json(raw)
-        except InvalidModelOutput:
+            return _parse_json(await _call(analysis, chain, system_prompt, user, **kwargs))
+        except InvalidModelOutput:  # JSON illisible, réponse vide ou réflexion sans fin
             if attempt:
                 raise
             user += ("\n\n(Ta réponse précédente n'était pas un JSON valide. Réponds uniquement avec un objet JSON "
@@ -545,8 +570,9 @@ class Analysis:
         if not self.activity.get("since"):
             return None
         chars = int(self.activity.get("chars") or 0)
-        return {"phase": "writing" if chars else "reading", "seconds": max(0, round(time.time() - self.activity["since"])),
-                "chars": chars}
+        thinking = int(self.activity.get("thinking") or 0)
+        phase = "writing" if chars else "thinking" if thinking else "reading"
+        return {"phase": phase, "seconds": max(0, round(time.time() - self.activity["since"])), "chars": chars or thinking}
 
     def summary(self) -> dict[str, Any]:
         spec = next((m for m in all_models() if m.id == (self.active_model_id or self.model_id)), None)

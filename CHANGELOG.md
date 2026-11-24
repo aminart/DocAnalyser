@@ -5,6 +5,26 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.10.1] — 2026-11-24
+
+### Corrigé
+
+- Synthèse globale sur un gros document : l'« Identification des grands thèmes » ne s'arrête plus avec « Réponse
+  vide du modèle » (Qwen 3.5/3.6 via Ollama, plusieurs centaines de sujets repérés). Le modèle passait toute sa
+  réponse à réfléchir sans rien écrire : la réflexion préalable est maintenant vraiment désactivée pour un modèle
+  sur ce poste (`reasoning_effort: "none"`, le seul réglage qu'Ollama respecte par son adresse compatible OpenAI ;
+  un serveur qui le refuse reçoit la requête sans lui), et les thèmes sont choisis par parties de 80 sujets au plus,
+  puis réunis en une liste finale. Une partie sans réponse est redemandée en deux moitiés ; si la réunion échoue,
+  les thèmes des parties sont gardés.
+- Une réponse vide n'arrête plus l'analyse d'emblée : elle est redemandée, puis la demande est découpée, comme une
+  réponse illisible. Une réflexion qui tourne en boucle est interrompue, et le message d'erreur dit quand le modèle
+  a réfléchi sans répondre.
+
+### Modifié
+
+- Écran de progression : « Le modèle réfléchit avant d'écrire » s'affiche, avec la longueur de sa réflexion, au lieu
+  de « Le modèle lit la demande » quand un modèle réfléchit sans encore répondre.
+
 ## [2.10.0] — 2026-11-23
 
 ### Ajouté
