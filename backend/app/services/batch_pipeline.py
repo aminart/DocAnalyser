@@ -340,14 +340,87 @@ async def _propose_themes(analysis: svc.Analysis, chain: list[svc.ModelSpec], ma
                 "Pour un corpus volumineux, prévois assez de thèmes pour que chacun reste lisible.")
     prompt = "\n\n".join([svc.BASE_RULES, svc.MODE_GUIDANCE[analysis.mode], task, svc.COMPLETENESS_RULE,
                            _lang(analysis.language), THEMES_SCHEMA_SHORT])
-    outline = await _cached_call_json(analysis, chain, prompt, material[: budget_chars(chain[0], analysis.context_cap)])
+    lines = [x for x in material.split("\n") if x.strip()]
+    max_chars = min(budget_chars(chain[0], analysis.context_cap), THEMES_PART_CHARS)
+    groups = _group(lines, max_chars, THEMES_PART_TOPICS)
+    if len(groups) == 1:
+        outline = await _cached_call_json(analysis, chain, prompt, "\n".join(lines)[: budget_chars(chain[0], analysis.context_cap)])
+        title, proposed = svc._s(outline.get("title")), _themes_of(outline)
+    else:
+        title, proposed = await _themes_by_part(analysis, chain, prompt, lines, groups, bool(existing))
     known = {t["title"].lower() for t in existing}
-    themes = [
-        {"title": svc._s(t.get("title")), "scope": svc._s(t.get("scope")), "items": []}
-        for t in outline.get("themes") or []
-        if isinstance(t, dict) and svc._s(t.get("title")) and svc._s(t.get("title")).lower() not in known
-    ]
-    return svc._s(outline.get("title")), themes
+    themes = [{**t, "items": []} for t in proposed if t["title"].lower() not in known]
+    return title, themes
+
+
+THEMES_PART_TOPICS = 80  # sujets par appel pour le choix des thèmes : au-delà, un modèle qui réfléchit s'y perd
+THEMES_PART_CHARS = 12_000
+THEMES_MERGE_TASK = (
+    "Voici les thèmes proposés séparément pour différentes parties d'un même corpus. Établis la liste finale des "
+    "grands thèmes de la synthèse : fusionne les thèmes identiques ou très proches (garde l'intitulé le plus "
+    "clair et une portée qui couvre les deux), mais ne perds aucun thème distinct."
+)
+
+
+def _themes_of(outline: dict[str, Any]) -> list[dict[str, str]]:
+    seen: set[str] = set()
+    out = []
+    for t in outline.get("themes") or []:
+        title = svc._s(t.get("title")) if isinstance(t, dict) else ""
+        if title and title.lower() not in seen:
+            seen.add(title.lower())
+            out.append({"title": title, "scope": svc._s(t.get("scope"))})
+    return out
+
+
+async def _themes_by_part(analysis: svc.Analysis, chain: list[svc.ModelSpec], prompt: str, lines: list[str],
+                          groups: list[list[int]], extra: bool) -> tuple[str, list[dict[str, str]]]:
+    """Gros corpus : des centaines de sujets. Les thèmes sont proposés partie par partie, puis les listes réunies.
+
+    En une seule demande, un modèle qui réfléchit avant de répondre (Qwen…) peut passer toute sa longueur de
+    réponse à trier les sujets, et ne rien écrire (« réponse vide »). Chaque partie reste courte ; une partie
+    sans réponse exploitable est coupée en deux, puis laissée de côté si besoin (ses sujets reviennent au
+    classement, qui crée au besoin des thèmes supplémentaires).
+    """
+    note = analysis.step_notes.get(2, "")
+    state = {"done": 0}
+
+    async def part(idx: list[int], split: bool = True) -> tuple[str, list[dict[str, str]]]:
+        try:
+            out = await _cached_call_json(analysis, chain, prompt, "\n".join(lines[i] for i in idx))
+            return svc._s(out.get("title")), _themes_of(out)
+        except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+            if split and len(idx) >= 2:
+                half = len(idx) // 2
+                a, b = await part(idx[:half], False), await part(idx[half:], False)
+                return a[0] or b[0], a[1] + b[1]
+            logger.warning("Choix des thèmes : partie de %s sujets sans réponse exploitable (%s)", len(idx), exc)
+            return "", []
+
+    async def counted(idx: list[int]) -> tuple[str, list[dict[str, str]]]:
+        res = await part(idx)
+        state["done"] += 1
+        analysis.step_notes[2] = f"{note} · partie {state['done']}/{len(groups)}"
+        return res
+
+    results = await _gather_limited([counted(g) for g in groups], svc.concurrency(chain[0]))
+    title = next((t for t, _ in results if t), "")
+    proposed = _themes_of({"themes": [t for _, ts in results for t in ts]})
+    if not proposed:
+        raise svc.InvalidModelOutput("Le modèle n'a proposé aucun thème pour les sujets repérés.")
+    if len(proposed) <= 1 or extra:  # thèmes supplémentaires : déjà distincts des existants, réunis tels quels
+        return title, proposed
+    # Réunion des listes : une liste de thèmes est bien plus courte que celle des sujets.
+    merge_prompt = "\n\n".join([svc.BASE_RULES, THEMES_MERGE_TASK, _lang(analysis.language), THEMES_SCHEMA_SHORT])
+    listing = "\n".join(f"- {t['title']} — {t['scope']}" for t in proposed)
+    try:
+        merged = await _cached_call_json(analysis, chain, merge_prompt, listing)
+        themes = _themes_of(merged)
+        if themes:
+            return svc._s(merged.get("title")) or title, themes
+    except (svc.InvalidModelOutput, svc.ProviderUnavailable) as exc:
+        logger.warning("Réunion des thèmes impossible (%s) : thèmes des parties gardés tels quels", exc)
+    return title, proposed
 
 
 _ASSIGN_KEY = re.compile(r'"[^"\n]{1,20}"\s*:\s*\d')

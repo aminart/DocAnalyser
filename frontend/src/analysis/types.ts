@@ -197,10 +197,11 @@ export interface AnalysisSummary {
 }
 
 export interface ModelActivity {
-  phase: 'reading' | 'writing';
+  /** reading : rien reçu ; thinking : réflexion préalable seulement ; writing : réponse en cours. */
+  phase: 'reading' | 'thinking' | 'writing';
   /** Secondes depuis l'envoi de la demande. */
   seconds: number;
-  /** Caractères de réponse reçus. */
+  /** Caractères de réponse reçus (de réflexion, en phase thinking). */
   chars: number;
 }
 

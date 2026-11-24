@@ -32,6 +32,8 @@ const duration = (seconds: number): string => {
 export const activityLabel = (a: ModelActivity | null | undefined): string => {
   if (!a || a.seconds < 10) return '';
   if (a.phase === 'reading') return `Le modèle lit la demande depuis ${duration(a.seconds)}`;
+  if (a.phase === 'thinking')
+    return `Le modèle réfléchit avant d'écrire : ${a.chars.toLocaleString('fr-FR')} caractères de réflexion en ${duration(a.seconds)}`;
   return `Le modèle écrit : ${a.chars.toLocaleString('fr-FR')} caractères reçus en ${duration(a.seconds)}`;
 };
 

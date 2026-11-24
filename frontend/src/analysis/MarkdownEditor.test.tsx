@@ -54,6 +54,7 @@ describe('remainingLabel et activityLabel', () => {
     expect(activityLabel(null)).toBe('');
     expect(activityLabel({ phase: 'reading', seconds: 5, chars: 0 })).toBe('');
     expect(activityLabel({ phase: 'reading', seconds: 4 * 60 + 3, chars: 0 })).toBe('Le modèle lit la demande depuis 4 min');
+    expect(activityLabel({ phase: 'thinking', seconds: 90, chars: 4000 })).toMatch(/^Le modèle réfléchit avant d'écrire : 4\s000 caractères de réflexion en 1 min$/);
     expect(activityLabel({ phase: 'writing', seconds: 125, chars: 12300 })).toMatch(/^Le modèle écrit : 12\s300 caractères reçus en 2 min$/);
   });
 });
