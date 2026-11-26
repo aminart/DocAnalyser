@@ -35,3 +35,16 @@ def test_historique_survit_au_redemarrage_et_suppression_propre(fixtures_dir):
 
     _restart()
     assert "h-done" not in svc.ANALYSES and d1.id not in svc.DOCUMENTS
+
+
+def test_document_recu_d_une_autre_app_se_relit(fixtures_dir):
+    """Snappy Transcript envoie un fichier puis ouvre #/importer/<id> : l'interface relit le document par son id."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+    envoi = client.post("/api/v2/documents", files={"file": ("Réunion.txt", "[00:00:01] Alice : bonjour\n".encode(), "text/plain")})
+    assert envoi.status_code == 200
+    doc = client.get(f"/api/v2/documents/{envoi.json()['id']}")
+    assert doc.status_code == 200 and doc.json()["name"] == "Réunion.txt"
+    assert client.get("/api/v2/documents/inconnu").status_code == 404

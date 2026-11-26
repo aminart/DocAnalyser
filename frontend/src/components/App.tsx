@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { analysisApi } from '../analysis/api';
-import { ConfigScreen } from '../analysis/ConfigScreen';
+import { ConfigScreen, type Import } from '../analysis/ConfigScreen';
 import { HistoryScreen } from '../analysis/HistoryScreen';
 import { JourneyReport } from '../analysis/JourneyReport';
 import { MarkdownEditor } from '../analysis/MarkdownEditor';
@@ -23,6 +23,15 @@ const parseHash = (): Route => {
   if (!m) return { screen: 'config' };
   const screen = m[2] === '/questions' ? 'questions' : m[2] === '/texte' ? 'text' : m[2] ? 'result' : 'progress';
   return { screen, id: m[1] };
+};
+
+/** #/importer/<id>?mode=transcript&from=Snappy%20Transcript : document envoyé par une autre app de la suite. */
+const lireImport = (): Import | null => {
+  const m = window.location.hash.match(/^#\/importer\/([\w-]+)(?:\?(.*))?$/);
+  if (!m) return null;
+  const p = new URLSearchParams(m[2] ?? '');
+  const mode = p.get('mode');
+  return { id: m[1], mode: mode === 'global' || mode === 'transcript' || mode === 'notes' || mode === 'flow' ? mode : null, from: p.get('from') ?? '' };
 };
 
 const go = (hash: string) => {
@@ -48,6 +57,8 @@ const writeLast = (id: string | null) => {
 
 export const App: React.FC = () => {
   const [route, setRoute] = useState<Route>(parseHash);
+  const [importe, setImporte] = useState<Import | null>(lireImport);
+  const importFini = useCallback(() => { if (window.location.hash.startsWith('#/importer/')) go('#/'); }, []);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastId, setLastId] = useState<string | null>(readLast);
@@ -57,7 +68,11 @@ export const App: React.FC = () => {
   const [watchId, setWatchId] = useState<string | null>(readLast);
 
   useEffect(() => {
-    const onHash = () => setRoute(parseHash());
+    const onHash = () => {
+      setRoute(parseHash());
+      const i = lireImport();
+      if (i) setImporte(i); // DocAnalyser déjà ouvert : un nouvel envoi arrive dans le même onglet
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -292,7 +307,7 @@ export const App: React.FC = () => {
 
       {/* La configuration reste montée pour conserver documents et choix entre deux analyses. */}
       <div hidden={route.screen !== 'config'}>
-        <ConfigScreen onLaunched={onLaunched} />
+        <ConfigScreen onLaunched={onLaunched} importe={importe} onImported={importFini} />
       </div>
       {body}
     </div>

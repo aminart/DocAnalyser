@@ -178,8 +178,12 @@ const Dots: React.FC<{ label: string; value: number; on: boolean }> = ({ label, 
   </span>
 );
 
-export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }> = ({ onLaunched }) => {
+/** Document reçu d'une autre app de la suite (Snappy Transcript) : adresse #/importer/<id>?mode=transcript&from=… */
+export interface Import { id: string; mode: AnalysisMode | null; from: string }
+
+export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void; importe?: Import | null; onImported?: () => void }> = ({ onLaunched, importe, onImported }) => {
   const [files, setFiles] = useState<FileEntry[]>([]);
+  const [recu, setRecu] = useState<string | null>(null);
   const [mode, setMode] = useState<AnalysisMode>('global');
   const [level, setLevel] = useState<AnalysisLevel>('detail');
   const [models, setModels] = useState<ModelInfo[]>([]);
@@ -195,6 +199,22 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Document envoyé par une autre app : ajouté à la liste, mode choisi, prêt à lancer
+  useEffect(() => {
+    if (!importe) return;
+    analysisApi
+      .getDocument(importe.id)
+      .then((doc) => {
+        setFiles((prev) => (prev.some((f) => f.doc?.id === doc.id) ? prev
+          : [...prev, { key: `import:${doc.id}`, name: doc.name, ext: doc.ext, size: doc.size_bytes, status: 'ready', doc }]));
+        if (importe.mode) setMode(importe.mode);
+        setRecu(`${doc.name} vient de ${importe.from || 'une autre application'} : choisissez le niveau de détail, puis lancez l'analyse.`);
+        setError(null);
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => onImported?.());
+  }, [importe, onImported]);
 
   useEffect(() => {
     const load = () =>
@@ -353,6 +373,12 @@ export const ConfigScreen: React.FC<{ onLaunched: (analysis: Analysis) => void }
           Importez vos documents, choisissez comment les lire, et laissez le modèle en dégager les grands thèmes.
         </p>
       </div>
+      {recu && (
+        <p role="status" className="m-0 mb-6 flex items-center gap-3 rounded-lg border border-accent bg-accent-softer px-4 py-3 text-sm text-ink">
+          <span className="min-w-0 flex-1">{recu}</span>
+          <button type="button" className="rounded border-0 bg-transparent px-2 text-lg leading-none text-ink-muted hover:text-ink" aria-label="Fermer le message" onClick={() => setRecu(null)}>×</button>
+        </p>
+      )}
 
       <div className="flex flex-wrap items-start gap-7">
         <div className="flex min-w-0 flex-[999_1_640px] flex-col gap-5">

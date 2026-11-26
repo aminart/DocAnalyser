@@ -27,6 +27,8 @@ export const analysisApi = {
     return request<UploadedDocument>('/documents', { method: 'POST', body: form });
   },
 
+  getDocument: (id: string) => request<UploadedDocument>(`/documents/${id}`),
+
   deleteDocument(id: string): void {
     fetch(`${API_BASE}/documents/${id}`, { method: 'DELETE' }).catch(() => undefined);
   },

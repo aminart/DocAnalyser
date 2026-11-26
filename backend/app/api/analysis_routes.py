@@ -68,6 +68,15 @@ async def upload_document(file: UploadFile = File(...)) -> dict:
     return doc.public()
 
 
+@router.get("/documents/{document_id}")
+async def get_document(document_id: str) -> dict:
+    """Un document déjà importé, par exemple envoyé par Snappy Transcript (« Analyser dans DocAnalyser »)."""
+    doc = svc.DOCUMENTS.get(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Ce document n'est plus disponible : renvoyez-le depuis l'application d'origine.")
+    return doc.public()
+
+
 @router.delete("/documents/{document_id}", status_code=204)
 async def delete_document(document_id: str) -> Response:
     """Retire un document importé, sauf s'il sert à une analyse enregistrée."""
