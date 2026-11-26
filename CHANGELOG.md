@@ -5,6 +5,8 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+## [2.11.0] — 2026-11-26
+
 ### Ajouté
 
 - Recevoir un document d'une autre app de la suite : Snappy Transcript (« Exporter › Envoyer à DocAnalyser ») dépose
