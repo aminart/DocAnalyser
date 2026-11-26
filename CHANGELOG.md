@@ -5,6 +5,12 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+### Ajouté
+
+- Recevoir un document d'une autre app de la suite : Snappy Transcript (« Exporter › Envoyer à DocAnalyser ») dépose
+  sa transcription et ouvre `#/importer/<id>?mode=transcript` ; le document arrive dans la liste, « Synthèse de
+  transcription » est choisie, il ne reste qu'à lancer. Nouvelle route `GET /api/v2/documents/{id}`.
+
 ## [2.10.1] — 2026-11-24
 
 ### Corrigé
