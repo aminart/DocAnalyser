@@ -11,22 +11,38 @@ from app.services.export_service import markdown_to_pdf
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1")
 
 
-@pytest.mark.parametrize("origin", ["http://127.0.0.1:8020", "http://localhost:5173"])
-def test_cors_autorise_l_interface_locale(client, origin):
-    r = client.get("/api/v2/analyses", headers={"Origin": origin})
-    assert r.headers.get("access-control-allow-origin") == origin
-
-
-@pytest.mark.parametrize("origin", ["https://site-malveillant.example", "http://127.0.0.1.example.com"])
-def test_cors_refuse_les_autres_sites(client, origin):
+@pytest.mark.parametrize("origin", ["https://site-malveillant.example", "http://127.0.0.1.example.com",
+                                    "http://localhost:5173", "http://127.0.0.1:8110"])
+def test_aucune_autre_page_ne_lit_l_api(client, origin):
+    """Pas de CORS : ni un site, ni une autre app sur localhost ne lit l'historique ou les connexions."""
     r = client.get("/api/v2/analyses", headers={"Origin": origin})
     assert "access-control-allow-origin" not in r.headers
     pre = client.options("/api/v2/connections/test", headers={
         "Origin": origin, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type"})
     assert "access-control-allow-origin" not in pre.headers
+
+
+def test_hote_inconnu_refuse_dns_rebinding(client):
+    assert client.get("/api/v2/analyses", headers={"host": "piege.example.com:8020"}).status_code == 403
+    assert client.get("/health", headers={"host": "localhost:8020"}).status_code == 200
+
+
+def test_requete_d_un_autre_site_refusee(client):
+    for chemin in ("/api/v2/documents", "/api/v2/connections/test", "/api/v2/analyses"):
+        assert client.post(chemin, json={}, headers={"origin": "https://site-malveillant.example"}).status_code == 403
+    assert client.post("/api/v2/analyses", json={}, headers={"sec-fetch-site": "cross-site"}).status_code == 403
+    # l'interface (même origine) et les envois sans navigateur (Snappy Transcript, Studio Dock) : acceptés
+    ok = client.post("/api/v2/documents", files={"file": ("a.txt", b"bonjour")}, headers={"origin": "http://127.0.0.1"})
+    assert ok.status_code == 200
+    assert client.post("/api/v2/documents", files={"file": ("b.txt", b"bonjour")}).status_code == 200
+
+
+def test_entetes_de_protection(client):
+    r = client.get("/health")
+    assert r.headers["x-frame-options"] == "DENY" and r.headers["cross-origin-resource-policy"] == "same-origin"
 
 
 @pytest.mark.parametrize("name,modern", [("vieux.doc", ".docx"), ("tableau.xls", ".xlsx"), ("diapo.ppt", ".pptx")])

@@ -5,12 +5,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.analysis_routes import router as analysis_router
 from app.api.connection_routes import router as connection_router
+from app import securite
 from app.core.config import BACKEND_DIR
 from app.info import APP_ID, APP_NAME, VERSION
 from app.services.analysis_service import load_history
@@ -28,15 +28,10 @@ app = FastAPI(
     version=VERSION,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    # Seule l'interface locale (servie par le backend, ou Vite en développement) peut appeler l'API :
-    # un site ouvert dans le navigateur ne doit pas pouvoir lire l'historique ni utiliser les connexions.
-    allow_origin_regex=r"https?://(127\.0\.0\.1|localhost)(:\d+)?",
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Seule l'interface servie par ce serveur (ou Vite en développement, via son proxy) peut appeler l'API : pas de CORS,
+# donc aucune autre page — même une autre app sur localhost — ne lit les réponses ; et voir securite.py pour
+# l'hôte (DNS rebinding), les requêtes qui modifient et les en-têtes.
+securite.proteger(app, APP_NAME)
 
 app.include_router(analysis_router)
 app.include_router(connection_router)

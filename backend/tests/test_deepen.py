@@ -144,7 +144,7 @@ def test_routes_et_refus(fixtures_dir, gemini, monkeypatch):
     monkeypatch.setattr(svc, "_complete", fake_complete)
     doc = svc.store_document((fixtures_dir / "entretiens_parcours.txt").read_bytes(), "parcours.txt")
     _analysis(doc, "dp-4")
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         assert client.post("/api/v2/analyses/dp-4/themes/9/deepen").status_code == 409
         r = client.post("/api/v2/analyses/dp-4/themes/0/deepen")
         assert r.status_code == 202 and r.json()["deepening"]["status"] == "running"

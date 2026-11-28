@@ -36,7 +36,7 @@ def vide():
 def test_connexions_proposees_en_lecture_seule():
     ecrire(defaut={"connection": "sd1", "model": "mistral-small"},
            apps={"docanalyser": {"connection": "sd2", "model": "qwen3:8b"}})
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")
     modeles = client.get("/api/v2/models").json()
     ids = {m["id"]: m for m in modeles}
     assert "studiodock-sd1:mistral-large" in ids and "studiodock-sd2:qwen3:8b" in ids
@@ -58,17 +58,17 @@ def test_connexions_proposees_en_lecture_seule():
 
 def test_modele_par_defaut_sans_choix_propre():
     ecrire(defaut={"connection": "sd1", "model": "mistral-small"})
-    modeles = TestClient(app).get("/api/v2/models").json()
+    modeles = TestClient(app, base_url="http://127.0.0.1").get("/api/v2/models").json()
     assert [m["id"] for m in modeles if m["preferred"]] == ["studiodock-sd1:mistral-small"]
 
 
 def test_configuration_propre():
     ecrire(defaut={"connection": "sd1", "model": "mistral-small"}, apps={"docanalyser": {"own": True}})
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")
     assert not [m for m in client.get("/api/v2/models").json() if m["id"].startswith("studiodock-")]
     etat = client.get("/api/v2/connections").json()
     assert etat["studiodock_own"] and not [c for c in etat["connections"] if c["source"] == "studiodock"]
 
 
 def test_sans_studio_dock():
-    assert not [m for m in TestClient(app).get("/api/v2/models").json() if m["id"].startswith("studiodock-")]
+    assert not [m for m in TestClient(app, base_url="http://127.0.0.1").get("/api/v2/models").json() if m["id"].startswith("studiodock-")]
