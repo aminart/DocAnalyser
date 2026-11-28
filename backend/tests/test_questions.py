@@ -134,7 +134,7 @@ def test_routes_questions(fixtures_dir, gemini, monkeypatch):
     monkeypatch.setattr(svc, "_complete", fake_complete)
     doc = svc.store_document((fixtures_dir / "entretiens_parcours.txt").read_bytes(), "parcours.txt")
     _analysis([doc], "qa-routes")
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         r = client.post("/api/v2/analyses/qa-routes/questions", json={"question": "Combien de participants ?"})
         assert r.status_code == 202 and r.json()["status"] == "running"
         for _ in range(50):

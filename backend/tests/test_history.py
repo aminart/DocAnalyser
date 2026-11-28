@@ -42,7 +42,7 @@ def test_document_recu_d_une_autre_app_se_relit(fixtures_dir):
     from fastapi.testclient import TestClient
     from app.main import app
 
-    client = TestClient(app)
+    client = TestClient(app, base_url="http://127.0.0.1")
     envoi = client.post("/api/v2/documents", files={"file": ("Réunion.txt", "[00:00:01] Alice : bonjour\n".encode(), "text/plain")})
     assert envoi.status_code == 200
     doc = client.get(f"/api/v2/documents/{envoi.json()['id']}")

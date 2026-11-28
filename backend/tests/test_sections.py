@@ -63,7 +63,7 @@ def test_lancement_avec_pages_choisies(monkeypatch):
     monkeypatch.setattr(svc, "_run", fake_run)
     monkeypatch.setattr(svc.settings, "GEMINI_API_KEY", "cle-de-test")
     monkeypatch.setattr(svc.settings, "GEMINI_TEST_MODELS", "gemini-3.8-flash")
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         body = {"document_ids": [doc.id], "mode": "global", "level": "detail", "model_id": "GEMINI:gemini-3.8-flash",
                 "sections": {doc.id: "2-3"}}
         res = client.post("/api/v2/analyses", json=body)

@@ -30,7 +30,7 @@ def vide():
 
 @pytest.fixture
 def client():
-    return TestClient(app)
+    return TestClient(app, base_url="http://127.0.0.1")
 
 
 def creer(client, **champs):

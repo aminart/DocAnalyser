@@ -35,7 +35,7 @@ def app_with_frontend(tmp_path, monkeypatch):
 def test_health():
     from app.main import app
 
-    body = TestClient(app).get("/health").json()
+    body = TestClient(app, base_url="http://127.0.0.1").get("/health").json()
     assert body == {"status": "ok", "app": APP_ID, "name": "DocAnalyser", "version": VERSION}
 
 
@@ -44,7 +44,7 @@ def test_default_port():
 
 
 def test_backend_serves_the_frontend(app_with_frontend):
-    client = TestClient(app_with_frontend)
+    client = TestClient(app_with_frontend, base_url="http://127.0.0.1")
     assert "DocAnalyser" in client.get("/").text
     assert "DocAnalyser" in client.get("/historique").text  # route de l'interface : index.html
     assert client.get("/assets/app.js").text == "console.log(1)"

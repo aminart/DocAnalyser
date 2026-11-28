@@ -5,6 +5,14 @@ le [versionnage sémantique](https://semver.org/lang/fr/) : voir README, « Vers
 
 ## [Non publié]
 
+### Sécurité
+
+- Plus de CORS : aucune autre page, même une autre app sur localhost, ne peut lire les documents, les analyses ou
+  les connexions (l'interface passe par le serveur lui-même, et Vite par son proxy en développement).
+- Requêtes qui modifient (import, analyse, connexions…) acceptées seulement depuis l'interface de DocAnalyser, ou
+  sans navigateur (Snappy Transcript qui dépose une transcription, Studio Dock).
+- Nom d'hôte limité à 127.0.0.1 / localhost (« DNS rebinding ») ; en-têtes anti-intégration.
+
 ## [2.11.0] — 2026-11-26
 
 ### Ajouté

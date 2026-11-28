@@ -31,7 +31,7 @@ def test_reprise_remplace_l_analyse_echouee_avec_les_memes_reglages(monkeypatch)
 
     monkeypatch.setattr(svc, "_run", fake_run)
     doc = _doc()
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         old = client.post("/api/v2/analyses", json={"document_ids": [doc.id], "mode": "notes", "level": "synth",
                                                      "model_id": "GEMINI:gemini-3.8-flash", "cite": False}).json()
         assert client.post(f"/api/v2/analyses/{old['id']}/retry").status_code == 400  # encore en cours
@@ -51,7 +51,7 @@ def test_texte_modifie_avant_export_puis_retour_au_texte_d_origine(monkeypatch):
     a.markdown = svc.to_markdown(a)
     original = a.markdown
     svc.ANALYSES[a.id] = a
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://127.0.0.1") as client:
         res = client.put(f"/api/v2/analyses/{a.id}/markdown", json={"markdown": "# Mon titre corrigé\n\nTexte."})
         assert res.status_code == 200 and res.json()["markdown_edited"] is True
         export = client.get(f"/api/v2/analyses/{a.id}/export?format=md")
